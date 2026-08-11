@@ -1,0 +1,38 @@
+{
+  "name": "enterprise-exam-prototype",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@playwright/test": "^1.49.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^9.16.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.13.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.10"
+  }
+}
