@@ -1,0 +1,10 @@
+<view class="container">
+  <view class="card">
+    <view class="title">员工登录</view>
+    <view class="subtitle">MP-01 小程序登录</view>
+    <input placeholder="员工号" value="{{employeeNo}}" bindinput="onEmployeeNoInput" />
+    <input placeholder="密码" password value="{{password}}" bindinput="onPasswordInput" />
+    <view class="error" wx:if="{{error}}">{{error}}</view>
+    <button class="btn-primary" loading="{{loading}}" bindtap="onLogin">登录</button>
+  </view>
+</view>

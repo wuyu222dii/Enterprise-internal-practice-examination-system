@@ -1,0 +1,8 @@
+<view class="container">
+  <view class="card">
+    <view class="title">练习模式</view>
+    <view class="subtitle">MP-03~05 练习入口（占位）</view>
+    <view class="stub">练习会话、错题本等功能将在后续迭代中实现。</view>
+    <navigator url="/pages/home/home" open-type="navigateBack">返回首页</navigator>
+  </view>
+</view>

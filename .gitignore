@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+backend/target/
+
+# Build
+dist/
+*.jar
+!backend/pom.xml
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+
+# MinIO / local data
+pgdata/
+miniodata/

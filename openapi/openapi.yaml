@@ -1,0 +1,2485 @@
+openapi: 3.1.0
+info:
+  title: 企业内部练习与考试系统 API
+  version: 1.0.0
+  description: |
+    MVP 完整接口规格。全局约定见 [00-API设计说明.md](./00-API设计说明.md)。
+    分域行为见 01~07 Markdown 文档。
+  contact:
+    name: Exam System Team
+
+servers:
+  - url: /api/v1
+    description: 单租户企业内网 API
+
+tags:
+  - name: Auth
+    description: 认证与会话（FR-AUTH, SYS-01）
+  - name: Organization
+    description: 组织与员工（FR-AUTH-04~05）
+  - name: QuestionBank
+    description: 题库与题目（FR-QST, SYS-02）
+  - name: Import
+    description: Excel 导题（FR-IMP, SYS-02）
+  - name: Practice
+    description: 日常练习（FR-PRA）
+  - name: MockExam
+    description: 模拟考试（FR-SIM, SYS-04）
+  - name: Exam
+    description: 正式考试配置（FR-EXM, SYS-03）
+  - name: Attempt
+    description: 考试尝试与开卷（FR-ATT, SYS-03）
+  - name: Answer
+    description: 作答保存与交卷（FR-ANS, SYS-04）
+  - name: Score
+    description: 评分与结果（FR-SCR, SYS-04）
+  - name: Report
+    description: 统计与导出（FR-REP, SYS-06）
+  - name: Outage
+    description: 平台故障（FR-OPS, SYS-05）
+  - name: Audit
+    description: 审计日志（FR-OPS-03, SYS-07）
+
+security:
+  - sessionAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: authLogin
+      summary: 工号密码登录
+      security: []
+      x-fr-ids: [FR-AUTH-01]
+      x-page-ids: [MP-01, EX-01, AD-01]
+      x-sys-ids: [SYS-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: authLogout
+      summary: 注销会话
+      x-fr-ids: [FR-AUTH-01]
+      responses:
+        '204':
+          description: 已注销
+
+  /auth/session:
+    get:
+      tags: [Auth]
+      operationId: authGetSession
+      summary: 查询当前会话
+      x-fr-ids: [FR-AUTH-01, FR-AUTH-06]
+      responses:
+        '200':
+          description: 会话有效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: authChangePassword
+      summary: 修改密码
+      x-fr-ids: [FR-AUTH-02]
+      x-page-ids: [MP-01, EX-01, AD-01, MP-12]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+
+  /auth/sms/send:
+    post:
+      tags: [Auth]
+      operationId: authSendSms
+      summary: 发送短信验证码
+      security: []
+      x-fr-ids: [FR-AUTH-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmsSendRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/sms/verify:
+    post:
+      tags: [Auth]
+      operationId: authVerifySms
+      summary: 校验短信验证码
+      security: []
+      x-fr-ids: [FR-AUTH-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmsVerifyRequest'
+      responses:
+        '200':
+          description: 验证成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          verificationToken:
+                            type: string
+                          expiresAt:
+                            type: string
+                            format: date-time
+
+  /auth/mini-program/bind:
+    post:
+      tags: [Auth]
+      operationId: authBindMiniProgram
+      summary: 小程序身份绑定
+      x-fr-ids: [FR-AUTH-03]
+      x-page-ids: [MP-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationToken, miniProgramOpenId]
+              properties:
+                verificationToken:
+                  type: string
+                miniProgramOpenId:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /auth/password-reset:
+    post:
+      tags: [Auth]
+      operationId: authPasswordReset
+      summary: 短信验证后重置密码
+      security: []
+      x-fr-ids: [FR-AUTH-03]
+      x-page-ids: [EX-01, MP-12]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeNo, verificationToken, newPassword]
+              properties:
+                employeeNo:
+                  type: string
+                verificationToken:
+                  type: string
+                newPassword:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /departments:
+    get:
+      tags: [Organization]
+      operationId: listDepartments
+      summary: 部门列表/树
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-02]
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [tree, flat]
+            default: tree
+      responses:
+        '200':
+          description: 部门数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Department'
+    post:
+      tags: [Organization]
+      operationId: createDepartment
+      summary: 创建部门
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-02]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, parentId]
+              properties:
+                name:
+                  type: string
+                parentId:
+                  type: string
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Department'
+
+  /departments/{id}:
+    patch:
+      tags: [Organization]
+      operationId: updateDepartment
+      summary: 更新部门（改名/移动/停用）
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-02]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                parentId:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, disabled]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /employees:
+    get:
+      tags: [Organization]
+      operationId: listEmployees
+      summary: 员工分页列表
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-03]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: departmentId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, disabled]
+        - name: keyword
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 分页员工
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedEmployees'
+    post:
+      tags: [Organization]
+      operationId: createEmployee
+      summary: 手工建档
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-03]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEmployeeRequest'
+      responses:
+        '201':
+          description: 含一次性临时密码
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreateEmployeeResponse'
+
+  /employees/import:
+    post:
+      tags: [Organization]
+      operationId: importEmployees
+      summary: Excel 批量导入员工
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-03]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /employees/{id}:
+    get:
+      tags: [Organization]
+      operationId: getEmployee
+      summary: 员工详情
+      x-fr-ids: [FR-AUTH-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    patch:
+      tags: [Organization]
+      operationId: updateEmployee
+      summary: 更新员工
+      x-fr-ids: [FR-AUTH-04]
+      x-page-ids: [AD-03, AD-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                departmentPath:
+                  type: string
+                phone:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, disabled]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /employees/{id}/reset-password:
+    post:
+      tags: [Organization]
+      operationId: resetEmployeePassword
+      summary: 重置员工密码
+      x-fr-ids: [FR-AUTH-02]
+      x-page-ids: [AD-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 含一次性临时密码
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          temporaryPassword:
+                            type: string
+
+  /employees/credential-batches/{id}/download:
+    get:
+      tags: [Organization]
+      operationId: downloadCredentialBatch
+      summary: 下载批量初始凭据（仅一次）
+      x-fr-ids: [FR-AUTH-02]
+      x-page-ids: [AD-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 凭据文件
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /employees/{id}/admin-grants:
+    patch:
+      tags: [Organization]
+      operationId: updateAdminGrants
+      summary: 管理员与异常处置授权
+      x-fr-ids: [FR-AUTH-05]
+      x-page-ids: [AD-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                isAdmin:
+                  type: boolean
+                hasOutageDisposition:
+                  type: boolean
+                reason:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /question-banks:
+    get:
+      tags: [QuestionBank]
+      operationId: listQuestionBanks
+      summary: 题库列表
+      x-fr-ids: [FR-QST-01]
+      x-page-ids: [AD-05]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [QuestionBank]
+      operationId: createQuestionBank
+      summary: 创建题库
+      x-fr-ids: [FR-QST-01]
+      x-page-ids: [AD-05]
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /question-banks/{id}:
+    patch:
+      tags: [QuestionBank]
+      operationId: updateQuestionBank
+      summary: 更新题库与开放策略
+      x-fr-ids: [FR-QST-01]
+      x-page-ids: [AD-05]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /question-banks/{bankId}/categories:
+    get:
+      tags: [QuestionBank]
+      operationId: listCategories
+      summary: 分类列表
+      x-fr-ids: [FR-QST-02]
+      x-page-ids: [AD-06]
+      parameters:
+        - name: bankId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [QuestionBank]
+      operationId: createCategory
+      summary: 创建分类
+      x-fr-ids: [FR-QST-02]
+      parameters:
+        - name: bankId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /categories/{id}:
+    patch:
+      tags: [QuestionBank]
+      operationId: updateCategory
+      summary: 更新分类
+      x-fr-ids: [FR-QST-02]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /categories/{categoryId}/knowledge-points:
+    get:
+      tags: [QuestionBank]
+      operationId: listKnowledgePoints
+      summary: 知识点列表
+      x-fr-ids: [FR-QST-02]
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [QuestionBank]
+      operationId: createKnowledgePoint
+      summary: 创建知识点
+      x-fr-ids: [FR-QST-02]
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /knowledge-points/{id}:
+    patch:
+      tags: [QuestionBank]
+      operationId: updateKnowledgePoint
+      summary: 更新知识点
+      x-fr-ids: [FR-QST-02]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /question-banks/{bankId}/questions:
+    get:
+      tags: [QuestionBank]
+      operationId: listQuestions
+      summary: 题目列表
+      x-fr-ids: [FR-QST-03]
+      x-page-ids: [AD-06]
+      parameters:
+        - name: bankId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [QuestionBank]
+      operationId: createQuestion
+      summary: 创建题目
+      x-fr-ids: [FR-QST-03, FR-QST-04]
+      x-page-ids: [AD-07]
+      parameters:
+        - name: bankId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /questions/{id}:
+    get:
+      tags: [QuestionBank]
+      operationId: getQuestion
+      summary: 题目详情
+      x-fr-ids: [FR-QST-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    patch:
+      tags: [QuestionBank]
+      operationId: updateQuestion
+      summary: 更新题目元数据（不含内容版本）
+      x-fr-ids: [FR-QST-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /questions/{id}/versions:
+    get:
+      tags: [QuestionBank]
+      operationId: listQuestionVersions
+      summary: 题目版本历史
+      x-fr-ids: [FR-QST-03]
+      x-page-ids: [AD-07]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [QuestionBank]
+      operationId: createQuestionVersion
+      summary: 创建不可变新版本
+      x-fr-ids: [FR-QST-03, FR-QST-04]
+      x-page-ids: [AD-07]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionVersionInput'
+      responses:
+        '201':
+          description: 新版本
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/QuestionVersionAdmin'
+
+  /question-versions/{versionId}:
+    get:
+      tags: [QuestionBank]
+      operationId: getQuestionVersion
+      summary: 题目版本详情
+      x-fr-ids: [FR-QST-03]
+      parameters:
+        - name: versionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /import/template:
+    get:
+      tags: [Import]
+      operationId: downloadImportTemplate
+      summary: 下载导题模板
+      x-fr-ids: [FR-IMP-01]
+      x-page-ids: [AD-08]
+      parameters:
+        - name: questionBankId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: xlsx 模板
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /import/tasks:
+    get:
+      tags: [Import]
+      operationId: listImportTasks
+      summary: 导题任务列表
+      x-fr-ids: [FR-IMP-05]
+      x-page-ids: [AD-08]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [Import]
+      operationId: createImportTask
+      summary: 上传 Excel 创建导题任务
+      x-fr-ids: [FR-IMP-01, FR-IMP-02]
+      x-page-ids: [AD-08]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, questionBankId]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                questionBankId:
+                  type: string
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /import/tasks/{id}:
+    get:
+      tags: [Import]
+      operationId: getImportTask
+      summary: 导题任务详情
+      x-fr-ids: [FR-IMP-05]
+      x-page-ids: [AD-08, AD-09]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /import/tasks/{id}/preview:
+    get:
+      tags: [Import]
+      operationId: getImportPreview
+      summary: 校验预览
+      x-fr-ids: [FR-IMP-03]
+      x-page-ids: [AD-09]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 预览与 confirmToken
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImportPreview'
+
+  /import/tasks/{id}/confirm:
+    post:
+      tags: [Import]
+      operationId: confirmImportTask
+      summary: 幂等确认导入
+      x-fr-ids: [FR-IMP-04]
+      x-page-ids: [AD-09]
+      x-sys-ids: [SYS-02]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmToken]
+              properties:
+                confirmToken:
+                  type: string
+                confirmPendingHierarchy:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /import/tasks/{id}/cancel:
+    post:
+      tags: [Import]
+      operationId: cancelImportTask
+      summary: 取消导题任务
+      x-fr-ids: [FR-IMP-05]
+      x-page-ids: [AD-08]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /import/tasks/{id}/revalidate:
+    post:
+      tags: [Import]
+      operationId: revalidateImportTask
+      summary: 重新校验
+      x-fr-ids: [FR-IMP-05]
+      x-page-ids: [AD-09]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /import/tasks/{id}/errors:
+    get:
+      tags: [Import]
+      operationId: downloadImportErrors
+      summary: 下载错误报告
+      x-fr-ids: [FR-IMP-02]
+      x-page-ids: [AD-09]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 错误 xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /practice/banks:
+    get:
+      tags: [Practice]
+      operationId: listPracticeBanks
+      summary: 开放练习的题库
+      x-fr-ids: [FR-PRA-01]
+      x-page-ids: [MP-03]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/sessions/active:
+    get:
+      tags: [Practice]
+      operationId: getActivePracticeSession
+      summary: 进行中练习会话
+      x-fr-ids: [FR-PRA-02]
+      x-page-ids: [MP-02, MP-03]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/sessions:
+    post:
+      tags: [Practice]
+      operationId: createPracticeSession
+      summary: 开始练习
+      x-fr-ids: [FR-PRA-02, FR-PRA-03]
+      x-page-ids: [MP-03, MP-04]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePracticeSessionRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /practice/sessions/{id}:
+    get:
+      tags: [Practice]
+      operationId: getPracticeSession
+      summary: 练习会话详情
+      x-fr-ids: [FR-PRA-02]
+      x-page-ids: [MP-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/sessions/{id}/answers:
+    post:
+      tags: [Practice]
+      operationId: submitPracticeAnswer
+      summary: 逐题提交（即时反馈）
+      x-fr-ids: [FR-PRA-04]
+      x-page-ids: [MP-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [questionVersionId, answer]
+              properties:
+                questionVersionId:
+                  type: string
+                answer:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/sessions/{id}/finish:
+    post:
+      tags: [Practice]
+      operationId: finishPracticeSession
+      summary: 结束练习
+      x-fr-ids: [FR-PRA-02]
+      x-page-ids: [MP-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/wrong-book:
+    get:
+      tags: [Practice]
+      operationId: listWrongBook
+      summary: 错题本
+      x-fr-ids: [FR-PRA-04, FR-PRA-05]
+      x-page-ids: [MP-05]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/records:
+    get:
+      tags: [Practice]
+      operationId: listPracticeRecords
+      summary: 练习记录
+      x-fr-ids: [FR-PRA-05]
+      x-page-ids: [MP-11]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/banks:
+    get:
+      tags: [MockExam]
+      operationId: listMockBanks
+      summary: 开放模拟的题库
+      x-fr-ids: [FR-SIM-01]
+      x-page-ids: [MP-06]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/attempts/active:
+    get:
+      tags: [MockExam]
+      operationId: getActiveMockAttempt
+      summary: 进行中模拟
+      x-fr-ids: [FR-SIM-01]
+      x-page-ids: [MP-02, MP-06]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/attempts:
+    post:
+      tags: [MockExam]
+      operationId: createMockAttempt
+      summary: 幂等开始模拟
+      x-fr-ids: [FR-SIM-01, FR-SIM-02]
+      x-page-ids: [MP-06, MP-07]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMockAttemptRequest'
+      responses:
+        '201':
+          description: 固定试卷与计时
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MockAttemptStartResponse'
+
+  /mock/attempts/{id}:
+    get:
+      tags: [MockExam]
+      operationId: getMockAttempt
+      summary: 模拟尝试详情（恢复）
+      x-fr-ids: [FR-SIM-02]
+      x-page-ids: [MP-07]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/attempts/{id}/paper:
+    get:
+      tags: [MockExam]
+      operationId: getMockPaper
+      summary: 模拟固定试卷
+      x-fr-ids: [FR-SIM-02]
+      x-page-ids: [MP-07]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 无标准答案
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Paper'
+
+  /mock/attempts/{id}/answers/{itemId}:
+    put:
+      tags: [MockExam]
+      operationId: saveMockAnswer
+      summary: 版本化保存模拟答案
+      x-fr-ids: [FR-SIM-02]
+      x-page-ids: [MP-07]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveAnswerRequest'
+      responses:
+        '200':
+          description: 已确认版本
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SaveAnswerResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /mock/attempts/{id}/submit:
+    post:
+      tags: [MockExam]
+      operationId: submitMockAttempt
+      summary: 幂等提交模拟
+      x-fr-ids: [FR-SIM-03]
+      x-page-ids: [MP-07]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/attempts/{id}/abandon:
+    post:
+      tags: [MockExam]
+      operationId: abandonMockAttempt
+      summary: 放弃模拟
+      x-fr-ids: [FR-SIM-04]
+      x-page-ids: [MP-07]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/attempts/{id}/result:
+    get:
+      tags: [MockExam]
+      operationId: getMockResult
+      summary: 模拟结果与复盘
+      x-fr-ids: [FR-SIM-03]
+      x-page-ids: [MP-08]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /mock/records:
+    get:
+      tags: [MockExam]
+      operationId: listMockRecords
+      summary: 模拟记录
+      x-fr-ids: [FR-SIM-03]
+      x-page-ids: [MP-11]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams:
+    get:
+      tags: [Exam]
+      operationId: listAdminExams
+      summary: 考试列表
+      x-fr-ids: [FR-EXM-01]
+      x-page-ids: [AD-10]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    post:
+      tags: [Exam]
+      operationId: createExam
+      summary: 创建考试草稿
+      x-fr-ids: [FR-EXM-01]
+      x-page-ids: [AD-10, AD-11]
+      responses:
+        '201':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}:
+    get:
+      tags: [Exam]
+      operationId: getAdminExam
+      summary: 考试详情
+      x-fr-ids: [FR-EXM-01]
+      x-page-ids: [AD-11]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+    patch:
+      tags: [Exam]
+      operationId: patchAdminExam
+      summary: 更新考试（草稿或说明）
+      x-fr-ids: [FR-EXM-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/wizard/basic:
+    put:
+      tags: [Exam]
+      operationId: updateExamWizardBasic
+      summary: 向导-基础信息
+      x-fr-ids: [FR-EXM-01]
+      x-page-ids: [AD-11]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/wizard/rules:
+    put:
+      tags: [Exam]
+      operationId: updateExamWizardRules
+      summary: 向导-规则与组卷
+      x-fr-ids: [FR-EXM-01, FR-EXM-02]
+      x-page-ids: [AD-11]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/wizard/assignees:
+    put:
+      tags: [Exam]
+      operationId: updateExamWizardAssignees
+      summary: 向导-应考人员
+      x-fr-ids: [FR-EXM-01]
+      x-page-ids: [AD-11]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/wizard/visibility:
+    put:
+      tags: [Exam]
+      operationId: updateExamWizardVisibility
+      summary: 向导-公开策略
+      x-fr-ids: [FR-EXM-01, FR-SCR-04]
+      x-page-ids: [AD-11]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/wizard/review:
+    put:
+      tags: [Exam]
+      operationId: updateExamWizardReview
+      summary: 向导-摘要确认
+      x-fr-ids: [FR-EXM-01]
+      x-page-ids: [AD-11]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/preflight:
+    post:
+      tags: [Exam]
+      operationId: examPreflight
+      summary: 发布预检
+      x-fr-ids: [FR-EXM-02]
+      x-page-ids: [AD-12]
+      x-sys-ids: [SYS-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/publish:
+    post:
+      tags: [Exam]
+      operationId: publishExam
+      summary: 发布考试
+      x-fr-ids: [FR-EXM-03]
+      x-page-ids: [AD-12]
+      x-sys-ids: [SYS-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/cancel:
+    post:
+      tags: [Exam]
+      operationId: cancelExam
+      summary: 取消考试
+      x-fr-ids: [FR-EXM-04]
+      x-page-ids: [AD-10, AD-13]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeVisibleReason, internalReason]
+              properties:
+                employeeVisibleReason:
+                  type: string
+                internalReason:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/monitor:
+    get:
+      tags: [Exam]
+      operationId: getExamMonitor
+      summary: 过程监控
+      x-fr-ids: [FR-EXM-05, FR-REP-01]
+      x-page-ids: [AD-13]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /exams/tasks:
+    get:
+      tags: [Exam]
+      operationId: listExamTasks
+      summary: 本人正式考试任务
+      x-fr-ids: [FR-EXM-05]
+      x-page-ids: [MP-09, EX-02]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /exams/{id}:
+    get:
+      tags: [Exam]
+      operationId: getExamTaskDetail
+      summary: 任务详情（脱敏）
+      x-fr-ids: [FR-EXM-05, FR-SCR-04]
+      x-page-ids: [MP-10, EX-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /exams/records:
+    get:
+      tags: [Exam]
+      operationId: listExamRecords
+      summary: 正式考试学习记录
+      x-fr-ids: [FR-EXM-05]
+      x-page-ids: [MP-11]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /exams/{id}/attempts:
+    post:
+      tags: [Attempt]
+      operationId: startExamAttempt
+      summary: 幂等开卷
+      x-fr-ids: [FR-ATT-01, FR-ATT-02, FR-ATT-03]
+      x-page-ids: [EX-03, EX-04]
+      x-sys-ids: [SYS-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 新开或返回原尝试
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExamAttemptStartResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /attempts/{id}:
+    get:
+      tags: [Attempt]
+      operationId: getExamAttempt
+      summary: 尝试详情（恢复+计时）
+      x-fr-ids: [FR-ANS-02]
+      x-page-ids: [EX-04]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 含 timing 与已确认答案
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExamAttemptDetail'
+
+  /attempts/{id}/paper:
+    get:
+      tags: [Attempt]
+      operationId: getExamPaper
+      summary: 固定试卷（无答案）
+      x-fr-ids: [FR-ATT-02]
+      x-page-ids: [EX-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 固定试卷（无标准答案）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Paper'
+
+  /attempts/{id}/answers/{itemId}:
+    put:
+      tags: [Answer]
+      operationId: saveExamAnswer
+      summary: 版本化保存答案
+      x-fr-ids: [FR-ANS-01]
+      x-page-ids: [EX-04]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveAnswerRequest'
+      responses:
+        '200':
+          description: 答案已确认
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SaveAnswerResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /attempts/{id}/submit:
+    post:
+      tags: [Answer]
+      operationId: submitExamAttempt
+      summary: 幂等交卷
+      x-fr-ids: [FR-ANS-03, FR-ANS-04]
+      x-page-ids: [EX-04]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  enum: [manual, timeout]
+                  default: manual
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+        '409':
+          description: 未确认答案或冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /attempts/{id}/result:
+    get:
+      tags: [Score]
+      operationId: getAttemptResult
+      summary: 受控结果/复盘
+      x-fr-ids: [FR-SCR-04]
+      x-page-ids: [EX-05, MP-11]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: 受控结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/EmployeeAttemptResult'
+
+  /admin/exams/{id}/scores/summary:
+    get:
+      tags: [Report]
+      operationId: getExamScoreSummary
+      summary: 双维度统计摘要
+      x-fr-ids: [FR-REP-01]
+      x-page-ids: [AD-14]
+      x-sys-ids: [SYS-06]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/scores/employees:
+    get:
+      tags: [Report]
+      operationId: listExamEmployeeScores
+      summary: 员工官方成绩表
+      x-fr-ids: [FR-REP-02, FR-SCR-02]
+      x-page-ids: [AD-14]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/attempts:
+    get:
+      tags: [Report]
+      operationId: listAdminExamAttempts
+      summary: 全部尝试列表
+      x-fr-ids: [FR-REP-02]
+      x-page-ids: [AD-15]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/attempts/{attemptId}:
+    get:
+      tags: [Report]
+      operationId: getAdminExamAttempt
+      summary: 尝试详情（管理端完整）
+      x-fr-ids: [FR-REP-02, FR-SCR-03]
+      x-page-ids: [AD-15]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/attempts/{attemptId}/void:
+    post:
+      tags: [Score]
+      operationId: voidExamAttempt
+      summary: 作废尝试并重算
+      x-fr-ids: [FR-SCR-03]
+      x-page-ids: [AD-15]
+      x-sys-ids: [SYS-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeVisibleReason, internalReason]
+              properties:
+                employeeVisibleReason:
+                  type: string
+                internalReason:
+                  type: string
+                refundAttempt:
+                  type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/exports:
+    post:
+      tags: [Report]
+      operationId: createExamExport
+      summary: 创建异步导出
+      x-fr-ids: [FR-REP-03]
+      x-page-ids: [AD-14]
+      x-sys-ids: [SYS-06]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [xlsx]
+                  default: xlsx
+                includeSheets:
+                  type: array
+                  items:
+                    type: string
+                    enum: [officialSummary, allAttempts]
+      responses:
+        '202':
+          description: 导出任务已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          jobId:
+                            type: string
+                          status:
+                            $ref: '#/components/schemas/AsyncJobStatus'
+
+  /admin/exports/{jobId}:
+    get:
+      tags: [Report]
+      operationId: getExportJob
+      summary: 查询导出任务
+      x-fr-ids: [FR-REP-03]
+      x-page-ids: [AD-14]
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 导出任务状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExportJob'
+
+  /admin/outage-events:
+    get:
+      tags: [Outage]
+      operationId: listOutageEvents
+      summary: 故障事件列表
+      x-fr-ids: [FR-OPS-01]
+      x-page-ids: [AD-13]
+      x-sys-ids: [SYS-05]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/outage-events/{id}:
+    get:
+      tags: [Outage]
+      operationId: getOutageEvent
+      summary: 故障事件详情与提案
+      x-fr-ids: [FR-OPS-01, FR-OPS-02]
+      x-page-ids: [AD-13]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/outage-events/{id}/proposals/{version}/confirm:
+    post:
+      tags: [Outage]
+      operationId: confirmOutageProposal
+      summary: 确认故障提案并补时
+      x-fr-ids: [FR-OPS-02]
+      x-page-ids: [AD-13]
+      x-sys-ids: [SYS-05]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmationNote:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/outage-events/{id}/proposals/{version}/reject:
+    post:
+      tags: [Outage]
+      operationId: rejectOutageProposal
+      summary: 驳回提案进入复核
+      x-fr-ids: [FR-OPS-02]
+      x-page-ids: [AD-13]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rejectReason]
+              properties:
+                rejectReason:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/audit-logs:
+    get:
+      tags: [Audit]
+      operationId: listAuditLogs
+      summary: 审计日志查询
+      x-fr-ids: [FR-OPS-03]
+      x-page-ids: [AD-16]
+      x-sys-ids: [SYS-07]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: actorId
+          in: query
+          schema:
+            type: string
+        - name: actionType
+          in: query
+          schema:
+            type: string
+        - name: targetType
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 亦可用 HttpOnly Session Cookie，二者等价
+
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: 幂等键，见 00-API设计说明
+
+  responses:
+    SuccessEmpty:
+      description: 成功
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiEnvelope'
+    Unauthorized:
+      description: 未登录
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: 无权限或账号受限
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: 版本或状态冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unprocessable:
+      description: 业务规则拒绝
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: 限流
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ApiEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {}
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    ErrorEnvelope:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiError'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    ResponseMeta:
+      type: object
+      required: [serverNow, requestId]
+      properties:
+        serverNow:
+          type: string
+          format: date-time
+        requestId:
+          type: string
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    ErrorCode:
+      type: string
+      enum:
+        - AUTH_INVALID_CREDENTIALS
+        - AUTH_ACCOUNT_LOCKED
+        - AUTH_ACCOUNT_DISABLED
+        - AUTH_SESSION_EXPIRED
+        - AUTH_PASSWORD_CHANGE_REQUIRED
+        - AUTH_SMS_RATE_LIMITED
+        - ORG_DEPARTMENT_NAME_DUPLICATE
+        - ORG_LAST_OUTAGE_ADMIN
+        - IMP_PREVIEW_STALE
+        - PRA_SESSION_ALREADY_ACTIVE
+        - SIM_ATTEMPT_ALREADY_ACTIVE
+        - ATT_NO_REMAINING_OPPORTUNITY
+        - ATT_EXAM_PAUSED
+        - ANS_VERSION_CONFLICT
+        - ANS_UNCONFIRMED_ANSWERS
+        - ANS_ATTEMPT_TERMINATED
+        - SCR_SUBMIT_IN_PROGRESS
+        - OPS_PROPOSAL_STALE
+        - OPS_NOT_AUTHORIZED
+        - SEC_FORBIDDEN
+
+    ClientType:
+      type: string
+      enum: [miniProgram, examWeb, adminWeb]
+
+    LoginRequest:
+      type: object
+      required: [employeeNo, password, clientType]
+      properties:
+        employeeNo:
+          type: string
+        password:
+          type: string
+          format: password
+        clientType:
+          $ref: '#/components/schemas/ClientType'
+
+    Session:
+      type: object
+      properties:
+        employeeId:
+          type: string
+        employeeNo:
+          type: string
+        displayName:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        isAdmin:
+          type: boolean
+        hasOutageDisposition:
+          type: boolean
+        mustChangePassword:
+          type: boolean
+        miniProgramBound:
+          type: boolean
+
+    SessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                session:
+                  $ref: '#/components/schemas/Session'
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          format: password
+
+    SmsSendRequest:
+      type: object
+      required: [phone, purpose]
+      properties:
+        phone:
+          type: string
+        purpose:
+          type: string
+          enum: [bindMiniProgram, resetPassword, unbindPhone]
+
+    SmsVerifyRequest:
+      type: object
+      required: [phone, code, purpose]
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+        purpose:
+          type: string
+
+    Department:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        parentId:
+          type: [string, 'null']
+        path:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled]
+        employeeCount:
+          type: integer
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Department'
+
+    EmployeeSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        employeeNo:
+          type: string
+        displayName:
+          type: string
+        departmentPath:
+          type: string
+        phoneMasked:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled]
+        isAdmin:
+          type: boolean
+        hasOutageDisposition:
+          type: boolean
+
+    PagedEmployees:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmployeeSummary'
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    CreateEmployeeRequest:
+      type: object
+      required: [employeeNo, displayName, departmentPath]
+      properties:
+        employeeNo:
+          type: string
+        displayName:
+          type: string
+        departmentPath:
+          type: string
+        phone:
+          type: string
+
+    CreateEmployeeResponse:
+      type: object
+      properties:
+        employee:
+          $ref: '#/components/schemas/EmployeeSummary'
+        temporaryPassword:
+          type: string
+          description: 仅本次响应返回一次
+
+    QuestionType:
+      type: string
+      enum: [singleChoice, multipleChoice, trueFalse]
+
+    QuestionVersionInput:
+      type: object
+      required: [type, stem, options, standardAnswer]
+      properties:
+        type:
+          $ref: '#/components/schemas/QuestionType'
+        stem:
+          type: string
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              text:
+                type: string
+        standardAnswer:
+          type: array
+          items:
+            type: string
+        explanation:
+          type: string
+        categoryId:
+          type: string
+        knowledgePointId:
+          type: [string, 'null']
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+        defaultScore:
+          type: number
+          format: double
+
+    QuestionVersionAdmin:
+      allOf:
+        - $ref: '#/components/schemas/QuestionVersionInput'
+        - type: object
+          properties:
+            id:
+              type: string
+            questionId:
+              type: string
+            versionNo:
+              type: integer
+            status:
+              type: string
+              enum: [active, disabled]
+            createdAt:
+              type: string
+              format: date-time
+
+    ImportPreview:
+      type: object
+      properties:
+        taskId:
+          type: string
+        status:
+          type: string
+        confirmToken:
+          type: string
+        importableCount:
+          type: integer
+        errorCount:
+          type: integer
+        pendingHierarchy:
+          type: object
+        previewExpiresAt:
+          type: string
+          format: date-time
+
+    CreatePracticeSessionRequest:
+      type: object
+      required: [questionBankId, mode]
+      properties:
+        questionBankId:
+          type: string
+        mode:
+          type: string
+          enum: [sequential, random, targeted, wrongBook]
+        scope:
+          type: object
+          properties:
+            categoryId:
+              type: [string, 'null']
+            knowledgePointId:
+              type: [string, 'null']
+        questionCount:
+          type: integer
+          enum: [10, 20, 50]
+
+    CreateMockAttemptRequest:
+      type: object
+      required: [questionBankId, questionCount, durationMinutes]
+      properties:
+        questionBankId:
+          type: string
+        questionCount:
+          type: integer
+          enum: [10, 20, 50]
+        durationMinutes:
+          type: integer
+          minimum: 10
+          maximum: 180
+
+    AttemptTiming:
+      type: object
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        remainingSeconds:
+          type: integer
+        serverNow:
+          type: string
+          format: date-time
+
+    PaperItem:
+      type: object
+      properties:
+        itemId:
+          type: string
+        order:
+          type: integer
+        questionVersionId:
+          type: string
+        score:
+          type: number
+        type:
+          $ref: '#/components/schemas/QuestionType'
+        stem:
+          type: string
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              text:
+                type: string
+
+    Paper:
+      type: object
+      properties:
+        attemptId:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaperItem'
+
+    SaveAnswerRequest:
+      type: object
+      required: [answer, answerVersion]
+      properties:
+        answer:
+          type: array
+          items:
+            type: string
+        answerVersion:
+          type: integer
+          minimum: 1
+
+    SaveStatus:
+      type: string
+      enum: [saving, saved, failed]
+
+    SaveAnswerResponse:
+      type: object
+      properties:
+        itemId:
+          type: string
+        confirmedVersion:
+          type: integer
+        saveStatus:
+          $ref: '#/components/schemas/SaveStatus'
+        confirmedAt:
+          type: string
+          format: date-time
+
+    ExamLifecycle:
+      type: string
+      enum: [draft, notStarted, openForAttempt, closing, ended, cancelled]
+
+    ExamRunStatus:
+      type: string
+      enum: [normal, paused]
+
+    AttemptStatus:
+      type: string
+      enum: [inProgress, submitting, completed, voided, terminated]
+
+    MockAttemptStartResponse:
+      type: object
+      properties:
+        attemptId:
+          type: string
+        status:
+          $ref: '#/components/schemas/AttemptStatus'
+        paper:
+          $ref: '#/components/schemas/Paper'
+        timing:
+          $ref: '#/components/schemas/AttemptTiming'
+
+    ExamAttemptStartResponse:
+      type: object
+      properties:
+        attemptId:
+          type: string
+        attemptNumber:
+          type: integer
+        attemptStatus:
+          $ref: '#/components/schemas/AttemptStatus'
+        paper:
+          $ref: '#/components/schemas/Paper'
+        timing:
+          $ref: '#/components/schemas/AttemptTiming'
+
+    ConfirmedAnswer:
+      type: object
+      properties:
+        itemId:
+          type: string
+        answer:
+          type: array
+          items:
+            type: string
+        confirmedVersion:
+          type: integer
+        saveStatus:
+          $ref: '#/components/schemas/SaveStatus'
+
+    ExamAttemptDetail:
+      type: object
+      properties:
+        attemptId:
+          type: string
+        examId:
+          type: string
+        attemptStatus:
+          $ref: '#/components/schemas/AttemptStatus'
+        attemptNumber:
+          type: integer
+        timing:
+          $ref: '#/components/schemas/AttemptTiming'
+        confirmedAnswers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfirmedAnswer'
+        runStatus:
+          $ref: '#/components/schemas/ExamRunStatus'
+        lifecycle:
+          $ref: '#/components/schemas/ExamLifecycle'
+
+    ResultVisibility:
+      type: object
+      properties:
+        summaryVisible:
+          type: boolean
+        passingScoreVisible:
+          type: boolean
+        passConclusionVisible:
+          type: boolean
+        perItemReviewAllowed:
+          type: boolean
+
+    EmployeeAttemptResult:
+      type: object
+      properties:
+        attemptId:
+          type: string
+        visibility:
+          $ref: '#/components/schemas/ResultVisibility'
+        totalScore:
+          type: [number, 'null']
+        maxScore:
+          type: [number, 'null']
+        passingScore:
+          type: [number, 'null']
+        retakeNeutralMessage:
+          type: [string, 'null']
+        items:
+          type: [array, 'null']
+          items:
+            type: object
+            properties:
+              itemId:
+                type: string
+              isCorrect:
+                type: boolean
+              userAnswer:
+                type: array
+                items:
+                  type: string
+              standardAnswer:
+                type: array
+                items:
+                  type: string
+              explanation:
+                type: string
+
+    AsyncJobStatus:
+      type: string
+      enum: [pending, processing, completed, failed, cancelled, expired]
+
+    ExportJob:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          $ref: '#/components/schemas/AsyncJobStatus'
+        downloadUrl:
+          type: [string, 'null']
+        expiresAt:
+          type: [string, 'null']
+          format: date-time

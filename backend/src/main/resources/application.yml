@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: exam-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5433/exam_system
+    username: exam
+    password: exam_dev
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: localhost
+      port: 6380
+      repositories:
+        enabled: false
+
+server:
+  port: 8088
+  servlet:
+    context-path: /api/v1
+
+exam:
+  security:
+    session-ttl-hours: 24
+    lock-duration-minutes: 15
+    max-failed-attempts: 5
+  storage:
+    minio-endpoint: http://localhost:19000
+    minio-access-key: minioadmin
+    minio-secret-key: minioadmin
+    bucket: exam-files
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+logging:
+  level:
+    com.examsystem: INFO

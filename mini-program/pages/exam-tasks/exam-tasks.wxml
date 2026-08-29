@@ -1,0 +1,14 @@
+<view class="container">
+  <view class="card">
+    <view class="title">考试任务</view>
+    <view class="subtitle">MP-09 我的考试</view>
+    <view wx:if="{{loading}}">加载中…</view>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <view wx:for="{{tasks}}" wx:key="id" class="task-item">
+      <view class="task-title">{{item.title || item.examCode || item.id}}</view>
+      <view class="task-status">{{item.lifecycle || item.status || '—'}}</view>
+    </view>
+    <view wx:if="{{!loading && tasks.length === 0}}" class="stub">暂无考试任务</view>
+    <navigator url="/pages/home/home" open-type="navigateBack">返回首页</navigator>
+  </view>
+</view>

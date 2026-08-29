@@ -1,0 +1,19 @@
+input {
+  display: block;
+  width: 100%;
+  padding: 20rpx;
+  margin-bottom: 20rpx;
+  border: 1rpx solid #dce3eb;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+.error {
+  color: #c0392b;
+  font-size: 24rpx;
+  margin-bottom: 16rpx;
+}
+
+button {
+  margin-top: 16rpx;
+}

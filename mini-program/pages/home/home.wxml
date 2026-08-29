@@ -1,0 +1,9 @@
+<view class="container">
+  <view class="card">
+    <view class="title">欢迎，{{displayName}}</view>
+    <view class="subtitle">MP-02 学习中心</view>
+    <navigator url="/pages/practice/practice" class="nav-item">练习模式</navigator>
+    <navigator url="/pages/exam-tasks/exam-tasks" class="nav-item">考试任务</navigator>
+    <button class="btn-logout" bindtap="onLogout">退出登录</button>
+  </view>
+</view>

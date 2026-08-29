@@ -1,0 +1,4 @@
+.stub {
+  color: #6b7c93;
+  margin-bottom: 24rpx;
+}

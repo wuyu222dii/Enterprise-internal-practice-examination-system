@@ -1,0 +1,317 @@
+package com.examsystem.modules.question;
+
+import com.examsystem.common.BusinessException;
+import com.examsystem.common.ErrorCode;
+import com.examsystem.common.IdGenerator;
+import com.examsystem.common.JsonHelper;
+import com.examsystem.common.PageDto;
+import com.examsystem.modules.question.dto.CreateQuestionBankRequest;
+import com.examsystem.modules.question.dto.CreateQuestionRequest;
+import com.examsystem.modules.question.dto.QuestionVersionInput;
+import com.examsystem.modules.question.dto.UpdateQuestionBankRequest;
+import com.examsystem.modules.question.entity.Category;
+import com.examsystem.modules.question.entity.KnowledgePoint;
+import com.examsystem.modules.question.entity.Question;
+import com.examsystem.modules.question.entity.QuestionBank;
+import com.examsystem.modules.question.entity.QuestionVersion;
+import com.examsystem.modules.question.repository.CategoryRepository;
+import com.examsystem.modules.question.repository.KnowledgePointRepository;
+import com.examsystem.modules.question.repository.QuestionBankRepository;
+import com.examsystem.modules.question.repository.QuestionRepository;
+import com.examsystem.modules.question.repository.QuestionVersionRepository;
+import com.examsystem.security.SecurityUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class QuestionService {
+
+    private final QuestionBankRepository questionBankRepository;
+    private final CategoryRepository categoryRepository;
+    private final KnowledgePointRepository knowledgePointRepository;
+    private final QuestionRepository questionRepository;
+    private final QuestionVersionRepository questionVersionRepository;
+
+    public QuestionService(
+            QuestionBankRepository questionBankRepository,
+            CategoryRepository categoryRepository,
+            KnowledgePointRepository knowledgePointRepository,
+            QuestionRepository questionRepository,
+            QuestionVersionRepository questionVersionRepository
+    ) {
+        this.questionBankRepository = questionBankRepository;
+        this.categoryRepository = categoryRepository;
+        this.knowledgePointRepository = knowledgePointRepository;
+        this.questionRepository = questionRepository;
+        this.questionVersionRepository = questionVersionRepository;
+    }
+
+    public List<Map<String, Object>> listBanks() {
+        SecurityUtils.requireAdmin();
+        return questionBankRepository.findAll().stream().map(this::bankToDto).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> createBank(CreateQuestionBankRequest request) {
+        SecurityUtils.requireAdmin();
+        QuestionBank bank = new QuestionBank();
+        bank.setId(IdGenerator.newId("qb"));
+        bank.setName(request.name());
+        bank.setPracticeEnabled(request.practiceEnabled() != null && request.practiceEnabled());
+        bank.setMockEnabled(request.mockEnabled() != null && request.mockEnabled());
+        questionBankRepository.save(bank);
+        return bankToDto(bank);
+    }
+
+    @Transactional
+    public Map<String, Object> updateBank(String id, UpdateQuestionBankRequest request) {
+        SecurityUtils.requireAdmin();
+        QuestionBank bank = getBank(id);
+        if (request.name() != null) {
+            bank.setName(request.name());
+        }
+        if (request.status() != null) {
+            bank.setStatus(request.status());
+        }
+        if (request.practiceEnabled() != null) {
+            bank.setPracticeEnabled(request.practiceEnabled());
+        }
+        if (request.mockEnabled() != null) {
+            bank.setMockEnabled(request.mockEnabled());
+        }
+        questionBankRepository.save(bank);
+        return bankToDto(bank);
+    }
+
+    public List<Map<String, Object>> listCategories(String bankId) {
+        SecurityUtils.requireAdmin();
+        getBank(bankId);
+        return categoryRepository.findByQuestionBankIdOrderByNameAsc(bankId).stream()
+                .map(this::categoryToDto).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> createCategory(String bankId, String name) {
+        SecurityUtils.requireAdmin();
+        getBank(bankId);
+        categoryRepository.findByQuestionBankIdAndName(bankId, name).ifPresent(c -> {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "分类名称重复", 422);
+        });
+        Category category = new Category();
+        category.setId(IdGenerator.newId("cat"));
+        category.setQuestionBankId(bankId);
+        category.setName(name);
+        categoryRepository.save(category);
+        return categoryToDto(category);
+    }
+
+    @Transactional
+    public void updateCategory(String id, String name) {
+        SecurityUtils.requireAdmin();
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "分类不存在", 404));
+        category.setName(name);
+        categoryRepository.save(category);
+    }
+
+    public List<Map<String, Object>> listKnowledgePoints(String categoryId) {
+        SecurityUtils.requireAdmin();
+        return knowledgePointRepository.findByCategoryIdOrderByNameAsc(categoryId).stream()
+                .map(this::kpToDto).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> createKnowledgePoint(String categoryId, String name) {
+        SecurityUtils.requireAdmin();
+        KnowledgePoint kp = new KnowledgePoint();
+        kp.setId(IdGenerator.newId("kp"));
+        kp.setCategoryId(categoryId);
+        kp.setName(name);
+        knowledgePointRepository.save(kp);
+        return kpToDto(kp);
+    }
+
+    @Transactional
+    public void updateKnowledgePoint(String id, String name) {
+        SecurityUtils.requireAdmin();
+        KnowledgePoint kp = knowledgePointRepository.findById(id)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "知识点不存在", 404));
+        kp.setName(name);
+        knowledgePointRepository.save(kp);
+    }
+
+    public PageDto<Map<String, Object>> listQuestions(String bankId, int page, int pageSize) {
+        SecurityUtils.requireAdmin();
+        Page<Question> result = questionRepository.findByQuestionBankId(bankId, PageRequest.of(page - 1, pageSize));
+        List<Map<String, Object>> items = result.getContent().stream().map(this::questionToDto).toList();
+        return new PageDto<>(items, result.getTotalElements(), page, pageSize);
+    }
+
+    @Transactional
+    public Map<String, Object> createQuestion(String bankId, CreateQuestionRequest request) {
+        SecurityUtils.requireAdmin();
+        getBank(bankId);
+        Question question = new Question();
+        question.setId(IdGenerator.newId("q"));
+        question.setQuestionBankId(bankId);
+        question.setCategoryId(request.categoryId());
+        question.setKnowledgePointId(request.knowledgePointId());
+        questionRepository.save(question);
+
+        QuestionVersion version = createVersionEntity(question.getId(), 1, request.version());
+        questionVersionRepository.save(version);
+        return questionToDto(question);
+    }
+
+    public Map<String, Object> getQuestion(String id) {
+        SecurityUtils.requireAdmin();
+        return questionToDto(getQuestionEntity(id));
+    }
+
+    @Transactional
+    public void updateQuestion(String id, String status, String categoryId, String knowledgePointId) {
+        SecurityUtils.requireAdmin();
+        Question question = getQuestionEntity(id);
+        if (status != null) {
+            question.setStatus(status);
+        }
+        if (categoryId != null) {
+            question.setCategoryId(categoryId);
+        }
+        if (knowledgePointId != null) {
+            question.setKnowledgePointId(knowledgePointId);
+        }
+        questionRepository.save(question);
+    }
+
+    public List<Map<String, Object>> listVersions(String questionId) {
+        SecurityUtils.requireAdmin();
+        return questionVersionRepository.findByQuestionIdOrderByVersionNoDesc(questionId).stream()
+                .map(this::versionToDto).toList();
+    }
+
+    @Transactional
+    public Map<String, Object> createVersion(String questionId, QuestionVersionInput input) {
+        SecurityUtils.requireAdmin();
+        getQuestionEntity(questionId);
+        int nextVersion = questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(questionId)
+                .map(v -> v.getVersionNo() + 1).orElse(1);
+        QuestionVersion version = createVersionEntity(questionId, nextVersion, input);
+        questionVersionRepository.save(version);
+        return versionToDto(version);
+    }
+
+    public Map<String, Object> getVersion(String versionId) {
+        SecurityUtils.requireAdmin();
+        QuestionVersion version = questionVersionRepository.findById(versionId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "版本不存在", 404));
+        return versionToDto(version);
+    }
+
+    public QuestionVersion requireVersion(String versionId) {
+        return questionVersionRepository.findById(versionId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "题目版本不存在", 404));
+    }
+
+    public QuestionBank requireActiveBank(String bankId) {
+        QuestionBank bank = getBank(bankId);
+        if (!"active".equals(bank.getStatus())) {
+            throw BusinessException.of(ErrorCode.QST_BANK_DISABLED, "题库已停用", 422);
+        }
+        return bank;
+    }
+
+    public List<QuestionVersion> findActiveVersionsByBank(String bankId) {
+        return questionRepository.findByQuestionBankId(bankId, PageRequest.of(0, 1000)).getContent().stream()
+                .flatMap(q -> questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(q.getId()).stream())
+                .filter(v -> "active".equals(v.getStatus()))
+                .toList();
+    }
+
+    private QuestionVersion createVersionEntity(String questionId, int versionNo, QuestionVersionInput input) {
+        QuestionVersion version = new QuestionVersion();
+        version.setId(IdGenerator.newId("qv"));
+        version.setQuestionId(questionId);
+        version.setVersionNo(versionNo);
+        version.setType(input.type());
+        version.setStem(input.stem());
+        version.setOptionsJson(JsonHelper.toJson(input.options()));
+        version.setStandardAnswer(JsonHelper.toJson(input.standardAnswer()));
+        version.setExplanation(input.explanation());
+        version.setDifficulty(input.difficulty() != null ? input.difficulty() : "medium");
+        version.setDefaultScore(input.defaultScore() != null ? input.defaultScore() : java.math.BigDecimal.ONE);
+        return version;
+    }
+
+    private QuestionBank getBank(String id) {
+        return questionBankRepository.findById(id)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "题库不存在", 404));
+    }
+
+    private Question getQuestionEntity(String id) {
+        return questionRepository.findById(id)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "题目不存在", 404));
+    }
+
+    private Map<String, Object> bankToDto(QuestionBank bank) {
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", bank.getId());
+        dto.put("name", bank.getName());
+        dto.put("status", bank.getStatus());
+        dto.put("practiceEnabled", bank.isPracticeEnabled());
+        dto.put("mockEnabled", bank.isMockEnabled());
+        dto.put("createdAt", bank.getCreatedAt());
+        return dto;
+    }
+
+    private Map<String, Object> categoryToDto(Category c) {
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", c.getId());
+        dto.put("questionBankId", c.getQuestionBankId());
+        dto.put("name", c.getName());
+        return dto;
+    }
+
+    private Map<String, Object> kpToDto(KnowledgePoint kp) {
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", kp.getId());
+        dto.put("categoryId", kp.getCategoryId());
+        dto.put("name", kp.getName());
+        return dto;
+    }
+
+    private Map<String, Object> questionToDto(Question q) {
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", q.getId());
+        dto.put("questionBankId", q.getQuestionBankId());
+        dto.put("categoryId", q.getCategoryId());
+        dto.put("knowledgePointId", q.getKnowledgePointId());
+        dto.put("status", q.getStatus());
+        questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(q.getId())
+                .ifPresent(v -> dto.put("latestVersionId", v.getId()));
+        return dto;
+    }
+
+    public Map<String, Object> versionToDto(QuestionVersion v) {
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", v.getId());
+        dto.put("questionId", v.getQuestionId());
+        dto.put("versionNo", v.getVersionNo());
+        dto.put("type", v.getType());
+        dto.put("stem", v.getStem());
+        dto.put("options", JsonHelper.toMapList(v.getOptionsJson()));
+        dto.put("standardAnswer", JsonHelper.toStringList(v.getStandardAnswer()));
+        dto.put("explanation", v.getExplanation());
+        dto.put("difficulty", v.getDifficulty());
+        dto.put("defaultScore", v.getDefaultScore());
+        dto.put("status", v.getStatus());
+        dto.put("createdAt", v.getCreatedAt());
+        return dto;
+    }
+}

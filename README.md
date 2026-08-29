@@ -10,6 +10,9 @@
 | 方案设计 | [docs/02-方案设计/](docs/02-方案设计/) | PRD 总览、三端页面级 PRD |
 | 研发对接 | [docs/03-研发对接/](docs/03-研发对接/) | Figma 设计源、视觉规范、屏幕标注 |
 | 接口设计 | [docs/04-接口设计/](docs/04-接口设计/) | REST API 规格、OpenAPI 3.1 |
+| 数据库设计 | [docs/05-数据库设计/](docs/05-数据库设计/) | 表结构、不变量索引 |
+| 测试验收 | [docs/06-测试验收/](docs/06-测试验收/) | 62 条验收追踪 |
+| 部署运维 | [docs/07-部署运维/](docs/07-部署运维/) | 本地启动、压测、生产要点 |
 | 设计稿 | [Figma · 产品原型](https://www.figma.com/design/0ScFyhj29qcWwstQZosPNd/%E4%BC%81%E4%B8%9A%E5%86%85%E9%83%A8%E7%BB%83%E4%B9%A0%E4%B8%8E%E8%80%83%E8%AF%95%E7%B3%BB%E7%BB%9F---%E4%BA%A7%E5%93%81%E5%8E%9F%E5%9E%8B?node-id=0-1) | 权威视觉稿与研发标注（Dev Mode） |
 
 ### 研发对接文档
@@ -28,6 +31,29 @@
 | [API 设计说明](docs/04-接口设计/00-API设计说明.md) | 全局约定、错误码、幂等、权限、脱敏 |
 | [openapi.yaml](docs/04-接口设计/openapi.yaml) | OpenAPI 3.1 机器可读规格 |
 | [接口与页面映射表](docs/04-接口设计/08-接口与页面映射表.md) | FR/SYS ↔ 端点 ↔ 页面 ↔ Figma |
+
+## 代码结构
+
+| 目录 | 说明 |
+| --- | --- |
+| [backend/](backend/) | Spring Boot 3 API（Java 17） |
+| [web-admin/](web-admin/) | React 管理后台 |
+| [web-exam/](web-exam/) | React 正式考试端 |
+| [mini-program/](mini-program/) | 微信小程序骨架 |
+| [openapi/](openapi/) | OpenAPI 契约副本 |
+| [scripts/](scripts/) | 冒烟测试、压测脚本 |
+| [docker-compose.yml](docker-compose.yml) | 本地 PostgreSQL + Redis + MinIO |
+
+## 快速启动
+
+```bash
+docker compose up -d
+cd backend && mvn spring-boot:run
+cd web-admin && npm install && npm run dev
+cd web-exam && npm install && npm run dev
+```
+
+默认管理员：`ADMIN001` / `Admin@123`（首登须改密）。详见 [backend/README.md](backend/README.md)。
 
 ## 三端架构
 

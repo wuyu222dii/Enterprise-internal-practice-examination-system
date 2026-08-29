@@ -1,0 +1,87 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { apiFetch, clearAuth, getStoredSession } from '../api/client'
+
+interface SessionDto {
+  displayName: string
+  employeeNo: string
+}
+
+type ExamTask = Record<string, unknown>
+
+export default function TaskListPage() {
+  const session = getStoredSession<SessionDto>()
+  const [tasks, setTasks] = useState<ExamTask[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const { data } = await apiFetch<ExamTask[]>('/exams/tasks')
+      setTasks(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  function handleLogout() {
+    clearAuth()
+    window.location.href = '/login'
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header with-actions">
+        <div>
+          <h1>考试任务</h1>
+          <p className="page-desc">EX-02 我的考试任务列表</p>
+        </div>
+        <div className="header-actions">
+          {session && (
+            <span className="user-label">{session.displayName}</span>
+          )}
+          <button type="button" className="btn-text" onClick={handleLogout}>
+            退出
+          </button>
+        </div>
+      </header>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {loading ? (
+        <p>加载中…</p>
+      ) : tasks.length === 0 ? (
+        <section className="card">
+          <p>暂无考试任务</p>
+        </section>
+      ) : (
+        <ul className="task-list">
+          {tasks.map((task) => {
+            const id = String(task.id ?? task.examId ?? '')
+            const title = String(task.title ?? task.examCode ?? id)
+            const lifecycle = String(task.lifecycle ?? task.status ?? '—')
+            return (
+              <li key={id} className="card task-card">
+                <div className="task-info">
+                  <h2>{title}</h2>
+                  <p className="task-meta">状态：{lifecycle}</p>
+                </div>
+                <Link to={`/exams/${id}`} className="btn-primary btn-sm">
+                  查看详情
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
