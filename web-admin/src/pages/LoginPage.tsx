@@ -29,7 +29,8 @@ export default function LoginPage() {
     try {
       const { data } = await apiFetch<LoginResponse>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ employeeNo, password }),
+        auth: false,
+        body: JSON.stringify({ employeeNo, password, clientType: 'adminWeb' }),
       })
       setAuth(data.token, data.session)
       navigate('/departments', { replace: true })

@@ -26,7 +26,7 @@ Page({
     wx.request({
       url: `${app.globalData.apiBase}/auth/login`,
       method: 'POST',
-      data: { employeeNo, password },
+      data: { employeeNo, password, clientType: 'miniProgram' },
       success: (res) => {
         if (res.statusCode === 200 && res.data && res.data.data) {
           const { token, session } = res.data.data

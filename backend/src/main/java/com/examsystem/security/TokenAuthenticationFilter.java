@@ -108,7 +108,11 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         if (contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath)) {
             path = path.substring(contextPath.length());
         }
-        return "/auth/change-password".equals(path) || "/auth/session".equals(path);
+        return "/auth/login".equals(path)
+                || "/auth/password-reset".equals(path)
+                || path.startsWith("/auth/sms/")
+                || "/auth/change-password".equals(path)
+                || "/auth/session".equals(path);
     }
 
     private String extractToken(HttpServletRequest request) {

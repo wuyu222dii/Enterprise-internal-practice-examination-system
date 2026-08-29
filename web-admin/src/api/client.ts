@@ -47,18 +47,19 @@ export class ApiError extends Error {
 
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit & { auth?: boolean } = {},
 ): Promise<ApiResponse<T>> {
+  const { auth = true, ...fetchOptions } = options
   const token = getToken()
-  const headers = new Headers(options.headers)
-  if (!headers.has('Content-Type') && options.body) {
+  const headers = new Headers(fetchOptions.headers)
+  if (!headers.has('Content-Type') && fetchOptions.body) {
     headers.set('Content-Type', 'application/json')
   }
-  if (token) {
+  if (auth && token) {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const response = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers })
 
   if (response.status === 401) {
     clearAuth()
