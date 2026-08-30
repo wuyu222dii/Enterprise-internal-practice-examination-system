@@ -227,6 +227,22 @@ public class QuestionService {
         return bank;
     }
 
+    @Transactional
+    public String getOrCreateDefaultCategory(String bankId) {
+        SecurityUtils.requireAdmin();
+        getBank(bankId);
+        return categoryRepository.findByQuestionBankIdAndName(bankId, "导入默认")
+                .map(Category::getId)
+                .orElseGet(() -> {
+                    Category category = new Category();
+                    category.setId(IdGenerator.newId("cat"));
+                    category.setQuestionBankId(bankId);
+                    category.setName("导入默认");
+                    categoryRepository.save(category);
+                    return category.getId();
+                });
+    }
+
     public List<QuestionVersion> findActiveVersionsByBank(String bankId) {
         return questionRepository.findByQuestionBankId(bankId, PageRequest.of(0, 1000)).getContent().stream()
                 .flatMap(q -> questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(q.getId()).stream())

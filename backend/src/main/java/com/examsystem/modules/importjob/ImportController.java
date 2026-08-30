@@ -105,7 +105,7 @@ public class ImportController {
 
     @GetMapping("/tasks/{id}/errors")
     public ResponseEntity<byte[]> downloadErrors(@PathVariable String id) {
-        byte[] content = importService.downloadTemplate(importService.getTask(id).get("questionBankId").toString());
+        byte[] content = importService.downloadErrors(id);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=import-errors.xlsx")
                 .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))

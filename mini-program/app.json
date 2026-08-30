@@ -3,7 +3,12 @@
     "pages/login/login",
     "pages/home/home",
     "pages/practice/practice",
-    "pages/exam-tasks/exam-tasks"
+    "pages/practice-session/practice-session",
+    "pages/mock/mock",
+    "pages/mock-exam/mock-exam",
+    "pages/exam-tasks/exam-tasks",
+    "pages/exam-detail/exam-detail",
+    "pages/records/records"
   ],
   "window": {
     "navigationBarBackgroundColor": "#1B4B8A",

@@ -1,0 +1,38 @@
+<view class="container">
+  <view class="card">
+    <view class="title">模拟考试</view>
+    <view class="subtitle">MP-06 选择题库开始模拟</view>
+
+    <view wx:if="{{loading}}">加载中…</view>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+
+    <view wx:if="{{activeAttempt}}" class="active-box">
+      <view class="active-title">进行中的模拟</view>
+      <view class="active-meta">{{activeAttempt.questionCount}} 题 · {{activeAttempt.durationMinutes}} 分钟</view>
+      <button class="btn-primary" bindtap="onContinue">继续模拟</button>
+    </view>
+
+    <view wx:if="{{!loading && banks.length === 0}}" class="stub">暂无开放模拟的题库</view>
+
+    <view wx:if="{{banks.length > 0}}">
+      <view class="label">选择题库</view>
+      <picker mode="selector" range="{{banks}}" range-key="name" bindchange="onBankChange">
+        <view class="picker">{{selectedBankName || '请选择题库'}}</view>
+      </picker>
+
+      <view class="label">题量</view>
+      <picker mode="selector" range="{{['10题','20题','50题']}}" bindchange="onCountChange">
+        <view class="picker">{{questionCount}} 题</view>
+      </picker>
+
+      <view class="label">时长</view>
+      <picker mode="selector" range="{{['30分钟','60分钟','90分钟']}}" bindchange="onDurationChange">
+        <view class="picker">{{durationMinutes}} 分钟</view>
+      </picker>
+
+      <button class="btn-primary" loading="{{starting}}" bindtap="onStart">开始模拟</button>
+    </view>
+
+    <navigator url="/pages/home/home" open-type="navigateBack" class="back-link">返回首页</navigator>
+  </view>
+</view>

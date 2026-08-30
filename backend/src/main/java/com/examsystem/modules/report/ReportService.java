@@ -4,6 +4,7 @@ import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.exam.ExamService;
 import com.examsystem.modules.exam.entity.ExamAttempt;
 import com.examsystem.modules.exam.repository.ExamAttemptRepository;
@@ -29,17 +30,23 @@ public class ReportService {
     private final ExamResultRepository resultRepository;
     private final ExportJobRepository exportJobRepository;
     private final ExamService examService;
+    private final ExportJobRunner exportJobRunner;
+    private final AuditService auditService;
 
     public ReportService(
             ExamAttemptRepository attemptRepository,
             ExamResultRepository resultRepository,
             ExportJobRepository exportJobRepository,
-            ExamService examService
+            ExamService examService,
+            ExportJobRunner exportJobRunner,
+            AuditService auditService
     ) {
         this.attemptRepository = attemptRepository;
         this.resultRepository = resultRepository;
         this.exportJobRepository = exportJobRepository;
         this.examService = examService;
+        this.exportJobRunner = exportJobRunner;
+        this.auditService = auditService;
     }
 
     public Map<String, Object> getScoreSummary(String examId) {
@@ -83,10 +90,19 @@ public class ReportService {
         if (!examId.equals(attempt.getExamId())) {
             throw BusinessException.of(ErrorCode.NOT_FOUND, "尝试不存在", 404);
         }
+        Map<String, Object> before = Map.of("attemptStatus", attempt.getAttemptStatus(), "voided", attempt.isVoided());
         attempt.setVoided(true);
         attempt.setVoidReason(internalReason);
         attempt.setAttemptStatus("voided");
         attemptRepository.save(attempt);
+        auditService.log(
+                "attempt.void",
+                "ExamAttempt",
+                attemptId,
+                before,
+                Map.of("attemptStatus", "voided", "voided", true),
+                internalReason
+        );
     }
 
     @Transactional
@@ -99,10 +115,7 @@ public class ReportService {
         job.setCreatedBy(SecurityUtils.requirePrincipal().getEmployeeId());
         job.setExpiresAt(Instant.now().plus(1, ChronoUnit.DAYS));
         exportJobRepository.save(job);
-
-        job.setStatus("completed");
-        job.setFileKey("exports/" + job.getId() + ".xlsx");
-        exportJobRepository.save(job);
+        exportJobRunner.runExport(job.getId());
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("jobId", job.getId());

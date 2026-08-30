@@ -1,9 +1,22 @@
 <view class="container">
   <view class="card">
     <view class="title">欢迎，{{displayName}}</view>
-    <view class="subtitle">MP-02 学习中心</view>
-    <navigator url="/pages/practice/practice" class="nav-item">练习模式</navigator>
-    <navigator url="/pages/exam-tasks/exam-tasks" class="nav-item">考试任务</navigator>
+    <view class="subtitle">MP-02 学习中心 · 工号 {{employeeNo}}</view>
+
+    <navigator url="/pages/practice/practice" class="nav-item">
+      <text>练习模式</text>
+    </navigator>
+    <navigator url="/pages/mock/mock" class="nav-item">
+      <text>模拟考试</text>
+    </navigator>
+    <navigator url="/pages/exam-tasks/exam-tasks" class="nav-item">
+      <text>考试任务</text>
+      <text wx:if="{{taskCount > 0}}" class="badge">{{taskCount}}</text>
+    </navigator>
+    <navigator url="/pages/records/records" class="nav-item">
+      <text>学习记录</text>
+    </navigator>
+
     <button class="btn-logout" bindtap="onLogout">退出登录</button>
   </view>
 </view>

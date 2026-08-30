@@ -1,0 +1,55 @@
+.progress {
+  font-size: 24rpx;
+  color: #6b7c93;
+  margin-bottom: 16rpx;
+}
+
+.stem {
+  font-size: 32rpx;
+  font-weight: 500;
+  margin-bottom: 24rpx;
+  line-height: 1.6;
+}
+
+.option {
+  display: flex;
+  padding: 20rpx;
+  margin-bottom: 12rpx;
+  background: #f5f7fa;
+  border-radius: 8rpx;
+  border: 2rpx solid transparent;
+}
+
+.option.selected {
+  border-color: #1b4b8a;
+  background: #eef3fa;
+}
+
+.option-key {
+  margin-right: 12rpx;
+  font-weight: 600;
+  color: #1b4b8a;
+}
+
+.feedback {
+  margin-top: 24rpx;
+  padding: 20rpx;
+  border-radius: 8rpx;
+}
+
+.feedback.correct {
+  background: #e8f8ef;
+}
+
+.feedback.wrong {
+  background: #fdecea;
+}
+
+.feedback-title {
+  font-weight: 600;
+  margin-bottom: 8rpx;
+}
+
+.error {
+  color: #c0392b;
+}

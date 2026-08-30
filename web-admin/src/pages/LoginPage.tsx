@@ -8,6 +8,7 @@ interface SessionDto {
   displayName: string
   roles: string[]
   isAdmin: boolean
+  mustChangePassword: boolean
 }
 
 interface LoginResponse {
@@ -33,7 +34,11 @@ export default function LoginPage() {
         body: JSON.stringify({ employeeNo, password, clientType: 'adminWeb' }),
       })
       setAuth(data.token, data.session)
-      navigate('/departments', { replace: true })
+      if (data.session.mustChangePassword) {
+        navigate('/change-password', { replace: true })
+      } else {
+        navigate('/departments', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
     } finally {
@@ -46,6 +51,7 @@ export default function LoginPage() {
       <div className="login-card">
         <h1>管理后台</h1>
         <p className="login-subtitle">AD-01 管理员登录</p>
+        <p className="login-hint">本地开发：ADMIN001 / Admin@123</p>
         <form onSubmit={handleSubmit}>
           <label>
             员工号

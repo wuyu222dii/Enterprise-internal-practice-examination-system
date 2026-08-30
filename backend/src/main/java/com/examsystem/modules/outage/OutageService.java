@@ -5,6 +5,10 @@ import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.exam.entity.Exam;
+import com.examsystem.modules.exam.entity.ExamAttempt;
+import com.examsystem.modules.exam.repository.ExamAttemptRepository;
+import com.examsystem.modules.exam.repository.ExamRepository;
 import com.examsystem.modules.outage.entity.OutageEvent;
 import com.examsystem.modules.outage.entity.OutageProposal;
 import com.examsystem.modules.outage.repository.OutageEventRepository;
@@ -16,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,10 +30,19 @@ public class OutageService {
 
     private final OutageEventRepository eventRepository;
     private final OutageProposalRepository proposalRepository;
+    private final ExamRepository examRepository;
+    private final ExamAttemptRepository attemptRepository;
 
-    public OutageService(OutageEventRepository eventRepository, OutageProposalRepository proposalRepository) {
+    public OutageService(
+            OutageEventRepository eventRepository,
+            OutageProposalRepository proposalRepository,
+            ExamRepository examRepository,
+            ExamAttemptRepository attemptRepository
+    ) {
         this.eventRepository = eventRepository;
         this.proposalRepository = proposalRepository;
+        this.examRepository = examRepository;
+        this.attemptRepository = attemptRepository;
     }
 
     public PageDto<Map<String, Object>> listEvents(int page, int pageSize) {
@@ -60,6 +74,7 @@ public class OutageService {
         proposal.setDecidedBy(SecurityUtils.requirePrincipal().getEmployeeId());
         proposal.setDecidedAt(Instant.now());
         proposalRepository.save(proposal);
+        applyProposalCompensation(event, proposal);
         event.setStatus("resolved");
         eventRepository.save(event);
     }
@@ -92,6 +107,30 @@ public class OutageService {
         proposal.setProposalJson(JsonHelper.toJson(Map.of("extendMinutes", 15)));
         proposalRepository.save(proposal);
         return eventToDto(event);
+    }
+
+    private void applyProposalCompensation(OutageEvent event, OutageProposal proposal) {
+        Map<String, Object> proposalData = JsonHelper.toMap(proposal.getProposalJson());
+        int extendMinutes = proposalData.get("extendMinutes") instanceof Number number
+                ? number.intValue()
+                : 15;
+        List<String> examIds = JsonHelper.toStringList(event.getAffectedExamIds());
+        Instant now = Instant.now();
+        for (String examId : examIds) {
+            examRepository.findById(examId).ifPresent(exam -> {
+                exam.setRunStatus("normal");
+                Instant base = exam.getStopAttemptAt() != null ? exam.getStopAttemptAt() : now;
+                exam.setStopAttemptAt(base.plus(extendMinutes, ChronoUnit.MINUTES));
+                examRepository.save(exam);
+                for (ExamAttempt attempt : attemptRepository.findByExamId(examId)) {
+                    if (!"inProgress".equals(attempt.getAttemptStatus())) {
+                        continue;
+                    }
+                    attempt.setExpiresAt(attempt.getExpiresAt().plus(extendMinutes, ChronoUnit.MINUTES));
+                    attemptRepository.save(attempt);
+                }
+            });
+        }
     }
 
     private void requireOutageAuthorized() {

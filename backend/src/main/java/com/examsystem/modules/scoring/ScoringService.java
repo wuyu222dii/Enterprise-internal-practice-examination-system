@@ -5,9 +5,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 @Service
 public class ScoringService {
@@ -23,13 +21,17 @@ public class ScoringService {
             case "singleChoice", "trueFalse" -> normalizedUser.size() == 1
                     && standard.size() == 1
                     && standard.get(0).equals(normalizedUser.get(0));
-            case "multipleChoice" -> setsEqual(new HashSet<>(standard), new HashSet<>(normalizedUser));
+            case "multipleChoice" -> sortedListsEqual(standard, normalizedUser);
             default -> false;
         };
     }
 
-    private boolean setsEqual(Set<String> a, Set<String> b) {
-        return a.equals(b);
+    private boolean sortedListsEqual(List<String> a, List<String> b) {
+        List<String> sortedA = new ArrayList<>(a);
+        List<String> sortedB = new ArrayList<>(b);
+        Collections.sort(sortedA);
+        Collections.sort(sortedB);
+        return sortedA.equals(sortedB);
     }
 
     public List<String> normalizeAnswer(List<String> answer) {

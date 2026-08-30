@@ -4,7 +4,7 @@
     <view class="subtitle">MP-09 我的考试</view>
     <view wx:if="{{loading}}">加载中…</view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
-    <view wx:for="{{tasks}}" wx:key="id" class="task-item">
+    <view wx:for="{{tasks}}" wx:key="id" class="task-item" bindtap="onTaskTap" data-id="{{item.id}}">
       <view class="task-title">{{item.title || item.examCode || item.id}}</view>
       <view class="task-status">{{item.lifecycle || item.status || '—'}}</view>
     </view>

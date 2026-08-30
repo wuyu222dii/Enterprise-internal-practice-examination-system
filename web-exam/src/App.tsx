@@ -1,15 +1,26 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { getToken } from './api/client'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { getStoredSession, getToken } from './api/client'
+import ChangePasswordPage from './pages/ChangePasswordPage'
 import ExamBriefPage from './pages/ExamBriefPage'
 import ExamWorkbenchPage from './pages/ExamWorkbenchPage'
 import LoginPage from './pages/LoginPage'
 import ResultPage from './pages/ResultPage'
 import TaskListPage from './pages/TaskListPage'
 
+interface SessionInfo {
+  mustChangePassword?: boolean
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = getToken()
+  const location = useLocation()
+  const session = getStoredSession<SessionInfo>()
+
   if (!token) {
     return <Navigate to="/login" replace />
+  }
+  if (session?.mustChangePassword && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />
   }
   return children
 }
@@ -19,6 +30,14 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/change-password"
+          element={
+            <ProtectedRoute>
+              <ChangePasswordPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/tasks"
           element={

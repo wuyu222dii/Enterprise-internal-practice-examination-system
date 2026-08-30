@@ -1,0 +1,31 @@
+.field {
+  display: flex;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #eef0f3;
+}
+
+.label {
+  width: 160rpx;
+  color: #6b7c93;
+  flex-shrink: 0;
+}
+
+.notice {
+  margin-top: 32rpx;
+  padding: 20rpx;
+  background: #fff8e6;
+  border-radius: 8rpx;
+  font-size: 26rpx;
+  color: #856404;
+}
+
+.back-link {
+  display: block;
+  margin-top: 24rpx;
+  color: #1b4b8a;
+  text-align: center;
+}
+
+.error {
+  color: #c0392b;
+}

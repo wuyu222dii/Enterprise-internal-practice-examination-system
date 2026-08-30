@@ -1,0 +1,37 @@
+<view class="container">
+  <view class="card" wx:if="{{loading}}">加载中…</view>
+  <view class="card" wx:if="{{error}}">
+    <view class="error">{{error}}</view>
+    <navigator url="/pages/exam-tasks/exam-tasks">返回任务列表</navigator>
+  </view>
+
+  <view class="card" wx:if="{{exam && !loading}}">
+    <view class="title">{{exam.title}}</view>
+    <view class="subtitle">MP-10 任务详情（小程序仅查看，正式作答请使用 Web 考试端）</view>
+
+    <view class="field">
+      <text class="label">状态</text>
+      <text>{{exam.lifecycle}}</text>
+    </view>
+    <view class="field">
+      <text class="label">运行状态</text>
+      <text>{{exam.runStatus || '—'}}</text>
+    </view>
+    <view class="field" wx:if="{{exam.openStartAt}}">
+      <text class="label">开放时间</text>
+      <text>{{exam.openStartAt}}</text>
+    </view>
+    <view class="field" wx:if="{{exam.stopAttemptAt}}">
+      <text class="label">截止进入</text>
+      <text>{{exam.stopAttemptAt}}</text>
+    </view>
+    <view class="field" wx:if="{{exam.description}}">
+      <text class="label">说明</text>
+      <text>{{exam.description}}</text>
+    </view>
+
+    <view class="notice">正式考试请在 Web 考试端登录作答，小程序不提供开卷入口。</view>
+
+    <navigator url="/pages/exam-tasks/exam-tasks" open-type="navigateBack" class="back-link">返回任务列表</navigator>
+  </view>
+</view>

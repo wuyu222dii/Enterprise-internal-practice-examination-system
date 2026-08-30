@@ -3,6 +3,7 @@ package com.examsystem.modules.organization;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.auth.SessionService;
 import com.examsystem.modules.organization.dto.AdminGrantsRequest;
 import com.examsystem.modules.organization.dto.CreateDepartmentRequest;
@@ -41,17 +42,20 @@ public class OrganizationService {
     private final EmployeeRepository employeeRepository;
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessionService;
+    private final AuditService auditService;
 
     public OrganizationService(
             DepartmentRepository departmentRepository,
             EmployeeRepository employeeRepository,
             PasswordEncoder passwordEncoder,
-            SessionService sessionService
+            SessionService sessionService,
+            AuditService auditService
     ) {
         this.departmentRepository = departmentRepository;
         this.employeeRepository = employeeRepository;
         this.passwordEncoder = passwordEncoder;
         this.sessionService = sessionService;
+        this.auditService = auditService;
     }
 
     public List<DepartmentDto> listDepartments(String format) {
@@ -171,6 +175,19 @@ public class OrganizationService {
         employee.setMustChangePassword(true);
         employee.setFailedLoginCount(0);
         employeeRepository.save(employee);
+
+        auditService.log(
+                "employee.create",
+                "Employee",
+                employee.getId(),
+                null,
+                Map.of(
+                        "employeeNo", employee.getEmployeeNo(),
+                        "displayName", employee.getDisplayName(),
+                        "departmentId", employee.getDepartmentId()
+                ),
+                null
+        );
 
         Map<String, String> departmentPaths = loadDepartmentPaths();
         EmployeeSummaryDto summary = toEmployeeSummary(employee, departmentPaths);

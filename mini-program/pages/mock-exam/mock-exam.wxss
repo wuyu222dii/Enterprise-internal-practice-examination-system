@@ -1,0 +1,69 @@
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+}
+
+.progress,
+.timer {
+  font-size: 24rpx;
+  color: #6b7c93;
+}
+
+.timer {
+  color: #c0392b;
+}
+
+.stem {
+  font-size: 32rpx;
+  font-weight: 500;
+  margin-bottom: 12rpx;
+  line-height: 1.6;
+}
+
+.score-hint {
+  font-size: 24rpx;
+  color: #6b7c93;
+  margin-bottom: 24rpx;
+}
+
+.option {
+  display: flex;
+  padding: 20rpx;
+  margin-bottom: 12rpx;
+  background: #f5f7fa;
+  border-radius: 8rpx;
+  border: 2rpx solid transparent;
+}
+
+.option.selected {
+  border-color: #1b4b8a;
+  background: #eef3fa;
+}
+
+.option-key {
+  margin-right: 12rpx;
+  font-weight: 600;
+  color: #1b4b8a;
+}
+
+.nav-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 24rpx 0;
+}
+
+.submit-btn {
+  margin-top: 16rpx;
+}
+
+.score {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #1b4b8a;
+  margin: 24rpx 0;
+}
+
+.error {
+  color: #c0392b;
+}

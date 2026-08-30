@@ -1,0 +1,42 @@
+<view class="container">
+  <view class="card" wx:if="{{loading}}">加载中…</view>
+  <view class="card" wx:if="{{error}}">
+    <view class="error">{{error}}</view>
+    <navigator url="/pages/practice/practice">返回练习</navigator>
+  </view>
+
+  <view class="card" wx:if="{{finished && !loading}}">
+    <view class="title">练习完成</view>
+    <view class="subtitle">共 {{session.questionCount}} 题</view>
+    <button class="btn-primary" bindtap="onBackHome">返回</button>
+  </view>
+
+  <view class="card" wx:if="{{currentItem && !finished && !loading}}">
+    <view class="progress">第 {{currentIndex + 1}} / {{session.questionCount}} 题</view>
+    <view class="stem">{{currentItem.stem}}</view>
+
+    <view
+      wx:for="{{currentItem.options}}"
+      wx:key="key"
+      class="option {{selectedKeys.indexOf(item.key) >= 0 ? 'selected' : ''}}"
+      data-key="{{item.key}}"
+      bindtap="onSelectOption"
+    >
+      <text class="option-key">{{item.key}}.</text>
+      <text>{{item.text}}</text>
+    </view>
+
+    <view wx:if="{{!feedback}}">
+      <button class="btn-primary" loading="{{submitting}}" bindtap="onSubmitAnswer">提交答案</button>
+    </view>
+
+    <view wx:if="{{feedback}}" class="feedback {{feedback.isCorrect ? 'correct' : 'wrong'}}">
+      <view class="feedback-title">{{feedback.isCorrect ? '回答正确' : '回答错误'}}</view>
+      <view wx:if="{{!feedback.isCorrect}}">正确答案：{{feedback.standardAnswerText || feedback.standardAnswer}}</view>
+      <view wx:if="{{feedback.explanation}}">解析：{{feedback.explanation}}</view>
+      <button class="btn-primary" bindtap="onNext">
+        {{currentIndex + 1 >= session.questionCount ? '完成练习' : '下一题'}}
+      </button>
+    </view>
+  </view>
+</view>

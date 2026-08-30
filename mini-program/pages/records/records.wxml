@@ -1,0 +1,32 @@
+<view class="container">
+  <view class="card">
+    <view class="title">学习记录</view>
+    <view class="subtitle">MP-11 练习与模拟记录</view>
+
+    <view class="tabs">
+      <view class="tab {{tab === 'practice' ? 'active' : ''}}" data-tab="practice" bindtap="onTabChange">练习</view>
+      <view class="tab {{tab === 'mock' ? 'active' : ''}}" data-tab="mock" bindtap="onTabChange">模拟</view>
+    </view>
+
+    <view wx:if="{{loading}}">加载中…</view>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+
+    <view wx:if="{{tab === 'practice'}}">
+      <view wx:for="{{practiceRecords}}" wx:key="id" class="record-item">
+        <view class="record-title">练习 · {{item.questionCount}} 题</view>
+        <view class="record-meta">{{item.status}} · {{item.mode}} · {{item.createdAt}}</view>
+      </view>
+      <view wx:if="{{!loading && practiceRecords.length === 0}}" class="stub">暂无练习记录</view>
+    </view>
+
+    <view wx:if="{{tab === 'mock'}}">
+      <view wx:for="{{mockRecords}}" wx:key="id" class="record-item">
+        <view class="record-title">模拟 · {{item.questionCount}} 题</view>
+        <view class="record-meta">{{item.status}} · {{item.durationMinutes}} 分钟 · {{item.startedAt}}</view>
+      </view>
+      <view wx:if="{{!loading && mockRecords.length === 0}}" class="stub">暂无模拟记录</view>
+    </view>
+
+    <navigator url="/pages/home/home" open-type="navigateBack" class="back-link">返回首页</navigator>
+  </view>
+</view>

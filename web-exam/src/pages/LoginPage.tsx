@@ -6,6 +6,7 @@ interface SessionDto {
   employeeId: string
   employeeNo: string
   displayName: string
+  mustChangePassword: boolean
 }
 
 interface LoginResponse {
@@ -31,7 +32,11 @@ export default function LoginPage() {
         body: JSON.stringify({ employeeNo, password, clientType: 'examWeb' }),
       })
       setAuth(data.token, data.session)
-      navigate('/tasks', { replace: true })
+      if (data.session.mustChangePassword) {
+        navigate('/change-password', { replace: true })
+      } else {
+        navigate('/tasks', { replace: true })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
     } finally {
@@ -44,6 +49,7 @@ export default function LoginPage() {
       <div className="login-card">
         <h1>正式考试端</h1>
         <p className="login-subtitle">EX-01 员工登录</p>
+        <p className="login-hint">本地开发：ADMIN001 / Admin@123</p>
         <form onSubmit={handleSubmit}>
           <label>
             员工号

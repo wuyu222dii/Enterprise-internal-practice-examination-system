@@ -1,10 +1,20 @@
 .nav-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 24rpx;
   margin-bottom: 16rpx;
   background: #f5f7fa;
   border-radius: 8rpx;
   color: #1b4b8a;
+}
+
+.badge {
+  background: #1b4b8a;
+  color: #fff;
+  font-size: 22rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
 }
 
 .btn-logout {

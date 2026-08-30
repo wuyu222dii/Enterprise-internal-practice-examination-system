@@ -29,4 +29,12 @@ App({
     wx.removeStorageSync('exam_token')
     wx.removeStorageSync('exam_session')
   },
+
+  authHeader() {
+    return { Authorization: `Bearer ${this.globalData.token}` }
+  },
+
+  newIdempotencyKey() {
+    return `mp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  },
 })

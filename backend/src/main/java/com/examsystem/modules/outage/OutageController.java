@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -26,6 +27,15 @@ public class OutageController {
     public OutageController(OutageService outageService, MetaFactory metaFactory) {
         this.outageService = outageService;
         this.metaFactory = metaFactory;
+    }
+
+    @PostMapping
+    public ApiResponse<Map<String, Object>> createEvent(@RequestBody Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<String> affectedExamIds = body != null && body.get("affectedExamIds") instanceof List<?>
+                ? ((List<?>) body.get("affectedExamIds")).stream().map(String::valueOf).toList()
+                : List.of();
+        return ApiResponse.ok(outageService.createEvent(affectedExamIds), metaFactory.build());
     }
 
     @GetMapping

@@ -213,7 +213,23 @@ public class PracticeService {
         dto.put("currentIndex", session.getCurrentIndex());
         dto.put("createdAt", session.getCreatedAt());
         dto.put("finishedAt", session.getFinishedAt());
+        dto.put("items", buildSessionItems(session.getId()));
         return dto;
+    }
+
+    private List<Map<String, Object>> buildSessionItems(String sessionId) {
+        return sessionItemRepository.findByPracticeSessionIdOrderByItemOrderAsc(sessionId).stream()
+                .map(item -> {
+                    QuestionVersion version = questionService.requireVersion(item.getQuestionVersionId());
+                    Map<String, Object> itemDto = new HashMap<>();
+                    itemDto.put("itemId", item.getId());
+                    itemDto.put("order", item.getItemOrder());
+                    itemDto.put("questionVersionId", item.getQuestionVersionId());
+                    itemDto.put("type", version.getType());
+                    itemDto.put("stem", version.getStem());
+                    itemDto.put("options", JsonHelper.toMapList(version.getOptionsJson()));
+                    return itemDto;
+                }).toList();
     }
 
     private Map<String, Object> wrongBookToDto(WrongBookEntry entry) {

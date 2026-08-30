@@ -5,10 +5,15 @@ import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.importjob.entity.ImportTask;
 import com.examsystem.modules.importjob.repository.ImportTaskRepository;
 import com.examsystem.modules.question.QuestionService;
+import com.examsystem.modules.question.dto.CreateQuestionRequest;
+import com.examsystem.modules.question.dto.QuestionVersionInput;
 import com.examsystem.security.SecurityUtils;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -23,21 +28,36 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class ImportService {
 
+    private static final int MAX_ROWS = 1000;
+    private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final Set<String> VALID_TYPES = Set.of("singleChoice", "multipleChoice", "trueFalse");
+    private static final Set<String> VALID_DIFFICULTIES = Set.of("easy", "medium", "hard");
+    private static final String[] TEMPLATE_HEADERS = {"type", "stem", "options", "standardAnswer", "difficulty"};
+
     private final ImportTaskRepository importTaskRepository;
     private final QuestionService questionService;
+    private final AuditService auditService;
+    private final DataFormatter dataFormatter = new DataFormatter();
 
-    public ImportService(ImportTaskRepository importTaskRepository, QuestionService questionService) {
+    public ImportService(
+            ImportTaskRepository importTaskRepository,
+            QuestionService questionService,
+            AuditService auditService
+    ) {
         this.importTaskRepository = importTaskRepository;
         this.questionService = questionService;
+        this.auditService = auditService;
     }
 
     public byte[] downloadTemplate(String questionBankId) {
@@ -46,10 +66,9 @@ public class ImportService {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("questions");
             Row header = sheet.createRow(0);
-            header.createCell(0).setCellValue("type");
-            header.createCell(1).setCellValue("stem");
-            header.createCell(2).setCellValue("options");
-            header.createCell(3).setCellValue("standardAnswer");
+            for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
+                header.createCell(i).setCellValue(TEMPLATE_HEADERS[i]);
+            }
             workbook.write(out);
             return out.toByteArray();
         } catch (IOException e) {
@@ -68,6 +87,9 @@ public class ImportService {
     public Map<String, Object> createTask(MultipartFile file, String questionBankId) {
         SecurityUtils.requireAdmin();
         questionService.requireActiveBank(questionBankId);
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "文件超过 10MB 限制", 422);
+        }
         ParseResult parseResult = parseExcel(file);
 
         ImportTask task = new ImportTask();
@@ -92,7 +114,7 @@ public class ImportService {
     public Map<String, Object> getPreview(String id) {
         SecurityUtils.requireAdmin();
         ImportTask task = getTaskEntity(id);
-        Map<String, Object> preview = new HashMap<>();
+        Map<String, Object> preview = new HashMap<>(JsonHelper.toMap(task.getPreviewJson()));
         preview.put("taskId", task.getId());
         preview.put("status", task.getStatus());
         preview.put("confirmToken", task.getConfirmToken());
@@ -107,12 +129,44 @@ public class ImportService {
     public void confirm(String id, String confirmToken) {
         SecurityUtils.requireAdmin();
         ImportTask task = getTaskEntity(id);
-        if (!confirmToken.equals(task.getConfirmToken())) {
+        if (!"preview_ready".equals(task.getStatus())) {
+            throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "任务状态不允许确认", 409);
+        }
+        if (task.getConfirmToken() == null || !confirmToken.equals(task.getConfirmToken())) {
             throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "确认令牌无效或已过期", 409);
+        }
+        Map<String, Object> preview = JsonHelper.toMap(task.getPreviewJson());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
+        String categoryId = questionService.getOrCreateDefaultCategory(task.getQuestionBankId());
+        for (Map<String, Object> row : validRows) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> options = (List<Map<String, Object>>) row.get("options");
+            @SuppressWarnings("unchecked")
+            List<String> standardAnswer = ((List<?>) row.get("standardAnswer")).stream()
+                    .map(String::valueOf).toList();
+            QuestionVersionInput version = new QuestionVersionInput(
+                    String.valueOf(row.get("type")),
+                    String.valueOf(row.get("stem")),
+                    options,
+                    standardAnswer,
+                    null,
+                    row.get("difficulty") != null ? String.valueOf(row.get("difficulty")) : "medium",
+                    null
+            );
+            questionService.createQuestion(task.getQuestionBankId(), new CreateQuestionRequest(categoryId, null, version));
         }
         task.setStatus("completed");
         task.setConfirmToken(null);
         importTaskRepository.save(task);
+        auditService.log(
+                "import.confirm",
+                "ImportTask",
+                id,
+                Map.of("status", "preview_ready"),
+                Map.of("status", "completed", "importedCount", validRows.size()),
+                null
+        );
     }
 
     @Transactional
@@ -132,15 +186,158 @@ public class ImportService {
         importTaskRepository.save(task);
     }
 
+    public byte[] downloadErrors(String id) {
+        SecurityUtils.requireAdmin();
+        ImportTask task = getTaskEntity(id);
+        Map<String, Object> preview = JsonHelper.toMap(task.getPreviewJson());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> errorRows = (List<Map<String, Object>>) preview.getOrDefault("errorRows", List.of());
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("errors");
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("rowNum");
+            header.createCell(1).setCellValue("message");
+            int rowIdx = 1;
+            for (Map<String, Object> error : errorRows) {
+                Row row = sheet.createRow(rowIdx++);
+                row.createCell(0).setCellValue(((Number) error.get("rowNum")).intValue());
+                row.createCell(1).setCellValue(String.valueOf(error.get("message")));
+            }
+            workbook.write(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to generate error report", e);
+        }
+    }
+
     private ParseResult parseExcel(MultipartFile file) {
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(0);
-            int rows = Math.max(0, sheet.getLastRowNum());
-            Map<String, Object> preview = Map.of("rows", rows, "sample", List.of());
-            return new ParseResult(rows, 0, preview);
+            if (sheet.getPhysicalNumberOfRows() == 0) {
+                throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 文件为空", 422);
+            }
+            Row headerRow = sheet.getRow(0);
+            validateHeader(headerRow);
+
+            List<Map<String, Object>> validRows = new ArrayList<>();
+            List<Map<String, Object>> errorRows = new ArrayList<>();
+            int dataRowCount = 0;
+
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null || isEmptyRow(row)) {
+                    continue;
+                }
+                dataRowCount++;
+                if (dataRowCount > MAX_ROWS) {
+                    throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "超过 1000 行数据限制", 422);
+                }
+                int rowNum = i + 1;
+                String type = cellValue(row, 0);
+                String stem = cellValue(row, 1);
+                String optionsRaw = cellValue(row, 2);
+                String standardAnswerRaw = cellValue(row, 3);
+                String difficulty = cellValue(row, 4);
+
+                List<String> errors = validateRow(type, stem, optionsRaw, standardAnswerRaw, difficulty);
+                if (!errors.isEmpty()) {
+                    Map<String, Object> errorRow = new HashMap<>();
+                    errorRow.put("rowNum", rowNum);
+                    errorRow.put("message", String.join("; ", errors));
+                    errorRows.add(errorRow);
+                    continue;
+                }
+
+                Map<String, Object> validRow = new HashMap<>();
+                validRow.put("rowNum", rowNum);
+                validRow.put("type", type.trim());
+                validRow.put("stem", stem.trim());
+                validRow.put("options", JsonHelper.parse(optionsRaw.trim()));
+                validRow.put("standardAnswer", JsonHelper.parse(standardAnswerRaw.trim()));
+                validRow.put("difficulty", difficulty.isBlank() ? "medium" : difficulty.trim());
+                validRows.add(validRow);
+            }
+
+            Map<String, Object> preview = new HashMap<>();
+            preview.put("validRows", validRows);
+            preview.put("errorRows", errorRows);
+            return new ParseResult(validRows.size(), errorRows.size(), preview);
+        } catch (BusinessException e) {
+            throw e;
         } catch (IOException e) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 解析失败", 422);
         }
+    }
+
+    private void validateHeader(Row headerRow) {
+        if (headerRow == null) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "缺少表头行", 422);
+        }
+        for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
+            String expected = TEMPLATE_HEADERS[i];
+            String actual = cellValue(headerRow, i).trim();
+            if (!expected.equalsIgnoreCase(actual)) {
+                throw BusinessException.of(ErrorCode.VALIDATION_ERROR,
+                        "表头第 " + (i + 1) + " 列应为 " + expected + "，实际为 " + actual, 422);
+            }
+        }
+    }
+
+    private List<String> validateRow(String type, String stem, String optionsRaw, String standardAnswerRaw, String difficulty) {
+        List<String> errors = new ArrayList<>();
+        if (type.isBlank()) {
+            errors.add("type 不能为空");
+        } else if (!VALID_TYPES.contains(type.trim())) {
+            errors.add("type 无效，应为 singleChoice/multipleChoice/trueFalse");
+        }
+        if (stem.isBlank()) {
+            errors.add("stem 不能为空");
+        }
+        if (optionsRaw.isBlank()) {
+            errors.add("options 不能为空");
+        } else {
+            try {
+                Object parsed = JsonHelper.parse(optionsRaw.trim());
+                if (!(parsed instanceof List<?> list) || list.isEmpty()) {
+                    errors.add("options 必须为非空 JSON 数组");
+                }
+            } catch (Exception e) {
+                errors.add("options 不是合法 JSON 数组");
+            }
+        }
+        if (standardAnswerRaw.isBlank()) {
+            errors.add("standardAnswer 不能为空");
+        } else {
+            try {
+                Object parsed = JsonHelper.parse(standardAnswerRaw.trim());
+                if (!(parsed instanceof List<?> list) || list.isEmpty()) {
+                    errors.add("standardAnswer 必须为非空 JSON 数组");
+                }
+            } catch (Exception e) {
+                errors.add("standardAnswer 不是合法 JSON 数组");
+            }
+        }
+        if (!difficulty.isBlank() && !VALID_DIFFICULTIES.contains(difficulty.trim())) {
+            errors.add("difficulty 无效，应为 easy/medium/hard");
+        }
+        return errors;
+    }
+
+    private boolean isEmptyRow(Row row) {
+        for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
+            if (!cellValue(row, i).isBlank()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String cellValue(Row row, int col) {
+        Cell cell = row.getCell(col);
+        if (cell == null) {
+            return "";
+        }
+        return dataFormatter.formatCellValue(cell).trim();
     }
 
     private ImportTask getTaskEntity(String id) {

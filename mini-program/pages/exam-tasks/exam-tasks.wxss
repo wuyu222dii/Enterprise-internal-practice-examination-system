@@ -3,6 +3,7 @@
   margin-bottom: 12rpx;
   background: #f5f7fa;
   border-radius: 8rpx;
+  cursor: pointer;
 }
 
 .task-title {

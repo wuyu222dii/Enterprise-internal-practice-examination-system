@@ -1,0 +1,40 @@
+<view class="container">
+  <view class="card" wx:if="{{loading}}">加载中…</view>
+  <view class="card" wx:if="{{error}}">
+    <view class="error">{{error}}</view>
+    <navigator url="/pages/mock/mock">返回模拟</navigator>
+  </view>
+
+  <view class="card" wx:if="{{submitted && result}}">
+    <view class="title">模拟完成</view>
+    <view class="score">得分 {{result.totalScore}} / {{result.maxScore}}</view>
+    <button class="btn-primary" bindtap="onBackHome">返回</button>
+  </view>
+
+  <view class="card" wx:if="{{currentItem && !submitted && !loading}}">
+    <view class="header-row">
+      <text class="progress">第 {{currentIndex + 1}} / {{paper.items.length}} 题</text>
+      <text class="timer">剩余 {{remainingSeconds}}s</text>
+    </view>
+    <view class="stem">{{currentItem.stem}}</view>
+    <view class="score-hint">本题 {{currentItem.score}} 分</view>
+
+    <view
+      wx:for="{{currentItem.options}}"
+      wx:key="key"
+      class="option {{selectedKeys.indexOf(item.key) >= 0 ? 'selected' : ''}}"
+      data-key="{{item.key}}"
+      bindtap="onSelectOption"
+    >
+      <text class="option-key">{{item.key}}.</text>
+      <text>{{item.text}}</text>
+    </view>
+
+    <view class="nav-row">
+      <button size="mini" disabled="{{currentIndex <= 0}}" bindtap="onPrev">上一题</button>
+      <button size="mini" disabled="{{currentIndex >= paper.items.length - 1}}" bindtap="onNext">下一题</button>
+    </view>
+
+    <button class="btn-primary submit-btn" loading="{{submitting}}" bindtap="onSubmitExam">交卷</button>
+  </view>
+</view>
