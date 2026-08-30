@@ -295,7 +295,7 @@ CREATE TABLE outage_events (
     status          VARCHAR(30) NOT NULL,
     candidate_started_at TIMESTAMP,
     open_interval_end TIMESTAMP,
-    affected_exam_ids JSON NOT NULL DEFAULT '[]',
+    affected_exam_ids JSON NOT NULL DEFAULT '[]' FORMAT JSON,
     latest_proposal_version INT NOT NULL DEFAULT 0,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMP NOT NULL DEFAULT NOW()

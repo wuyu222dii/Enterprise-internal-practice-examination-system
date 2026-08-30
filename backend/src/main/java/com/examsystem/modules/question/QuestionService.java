@@ -25,6 +25,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -149,7 +150,10 @@ public class QuestionService {
     public PageDto<Map<String, Object>> listQuestions(String bankId, int page, int pageSize) {
         SecurityUtils.requireAdmin();
         Page<Question> result = questionRepository.findByQuestionBankId(bankId, PageRequest.of(page - 1, pageSize));
-        List<Map<String, Object>> items = result.getContent().stream().map(this::questionToDto).toList();
+        Map<String, String> latestVersionIds = loadLatestVersionIds(result.getContent());
+        List<Map<String, Object>> items = result.getContent().stream()
+                .map(q -> questionToDto(q, latestVersionIds.get(q.getId())))
+                .toList();
         return new PageDto<>(items, result.getTotalElements(), page, pageSize);
     }
 
@@ -219,6 +223,26 @@ public class QuestionService {
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "题目版本不存在", 404));
     }
 
+    /**
+     * Batch counterpart of {@link #requireVersion}. Paper rendering and scoring touch every item of a
+     * 100-question paper, so they must not issue one query per item.
+     */
+    public Map<String, QuestionVersion> requireVersions(Collection<String> versionIds) {
+        if (versionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, QuestionVersion> versions = new HashMap<>();
+        for (QuestionVersion version : questionVersionRepository.findAllById(versionIds)) {
+            versions.put(version.getId(), version);
+        }
+        for (String versionId : versionIds) {
+            if (!versions.containsKey(versionId)) {
+                throw BusinessException.of(ErrorCode.NOT_FOUND, "题目版本不存在: " + versionId, 404);
+            }
+        }
+        return versions;
+    }
+
     public Question requireQuestion(String questionId) {
         return getQuestionEntity(questionId);
     }
@@ -268,10 +292,37 @@ public class QuestionService {
     }
 
     public List<QuestionVersion> findActiveVersionsByBank(String bankId) {
-        return questionRepository.findByQuestionBankId(bankId, PageRequest.of(0, 1000)).getContent().stream()
-                .flatMap(q -> questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(q.getId()).stream())
-                .filter(v -> "active".equals(v.getStatus()))
-                .toList();
+        return questionVersionRepository.findLatestActiveByBankAndScope(bankId, null, null);
+    }
+
+    /**
+     * Ids of the drawable candidate versions in a bank, optionally restricted to one question type.
+     */
+    public List<String> findActiveVersionIdsByBank(String bankId, String type) {
+        return questionVersionRepository.findLatestActiveIdsByBankAndType(bankId, blankToNull(type));
+    }
+
+    public List<QuestionVersion> findActiveVersionsByScope(String bankId, String categoryId, String knowledgePointId) {
+        return questionVersionRepository.findLatestActiveByBankAndScope(
+                bankId, blankToNull(categoryId), blankToNull(knowledgePointId));
+    }
+
+    /**
+     * Batch lookup of the owning questions for a set of versions, keyed by question id.
+     */
+    public Map<String, Question> findQuestionsByIds(Collection<String> questionIds) {
+        if (questionIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Question> questions = new HashMap<>();
+        for (Question question : questionRepository.findAllById(questionIds)) {
+            questions.put(question.getId(), question);
+        }
+        return questions;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private QuestionVersion createVersionEntity(String questionId, int versionNo, QuestionVersionInput input) {
@@ -326,15 +377,34 @@ public class QuestionService {
         return dto;
     }
 
+    private Map<String, String> loadLatestVersionIds(List<Question> questions) {
+        if (questions.isEmpty()) {
+            return Map.of();
+        }
+        List<String> questionIds = questions.stream().map(Question::getId).toList();
+        Map<String, String> latest = new HashMap<>();
+        for (QuestionVersion version : questionVersionRepository.findLatestByQuestionIds(questionIds)) {
+            latest.put(version.getQuestionId(), version.getId());
+        }
+        return latest;
+    }
+
     private Map<String, Object> questionToDto(Question q) {
+        return questionToDto(q, questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(q.getId())
+                .map(QuestionVersion::getId)
+                .orElse(null));
+    }
+
+    private Map<String, Object> questionToDto(Question q, String latestVersionId) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", q.getId());
         dto.put("questionBankId", q.getQuestionBankId());
         dto.put("categoryId", q.getCategoryId());
         dto.put("knowledgePointId", q.getKnowledgePointId());
         dto.put("status", q.getStatus());
-        questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(q.getId())
-                .ifPresent(v -> dto.put("latestVersionId", v.getId()));
+        if (latestVersionId != null) {
+            dto.put("latestVersionId", latestVersionId);
+        }
         return dto;
     }
 

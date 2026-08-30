@@ -3,7 +3,10 @@ package com.examsystem.modules.report;
 import com.examsystem.common.ApiResponse;
 import com.examsystem.common.MetaFactory;
 import com.examsystem.common.PageDto;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -87,12 +90,12 @@ public class ReportController {
     }
 
     @GetMapping("/admin/exports/{jobId}/download")
-    public ResponseEntity<byte[]> downloadExport(@PathVariable String jobId) {
-        byte[] content = reportService.downloadExport(jobId);
+    public ResponseEntity<Resource> downloadExport(@PathVariable String jobId) {
+        Resource content = reportService.downloadExport(jobId);
         return ResponseEntity.ok()
-                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"export-" + jobId + ".xlsx\"")
-                .contentType(org.springframework.http.MediaType.parseMediaType(
+                .contentType(MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                 .body(content);
     }

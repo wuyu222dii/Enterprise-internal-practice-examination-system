@@ -5,8 +5,10 @@ import com.examsystem.modules.question.QuestionService;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class PaperHelper {
 
@@ -14,8 +16,14 @@ public final class PaperHelper {
     }
 
     public static Map<String, Object> buildPaper(String attemptId, List<PaperItemSource> items, QuestionService questionService) {
+        Set<String> versionIds = new LinkedHashSet<>();
+        for (PaperItemSource item : items) {
+            versionIds.add(item.questionVersionId());
+        }
+        Map<String, QuestionVersion> versions = questionService.requireVersions(versionIds);
+
         List<Map<String, Object>> paperItems = items.stream().map(item -> {
-            QuestionVersion version = questionService.requireVersion(item.questionVersionId());
+            QuestionVersion version = versions.get(item.questionVersionId());
             Map<String, Object> dto = new HashMap<>();
             dto.put("itemId", item.itemId());
             dto.put("order", item.order());

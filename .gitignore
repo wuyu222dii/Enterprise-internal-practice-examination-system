@@ -23,3 +23,4 @@ dist/
 # MinIO / local data
 pgdata/
 miniodata/
+backend/data/

@@ -15,6 +15,7 @@ import com.examsystem.modules.practice.repository.PracticeSessionItemRepository;
 import com.examsystem.modules.practice.repository.PracticeSessionRepository;
 import com.examsystem.modules.practice.repository.WrongBookEntryRepository;
 import com.examsystem.modules.question.QuestionService;
+import com.examsystem.modules.question.entity.Question;
 import com.examsystem.modules.question.entity.QuestionBank;
 import com.examsystem.modules.question.entity.QuestionVersion;
 import com.examsystem.modules.question.repository.QuestionBankRepository;
@@ -26,13 +27,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class PracticeService {
+
+    private static final int WRONG_BOOK_LIMIT = 500;
 
     private final PracticeSessionRepository sessionRepository;
     private final PracticeSessionItemRepository sessionItemRepository;
@@ -85,12 +92,12 @@ public class PracticeService {
         }
 
         int count = request.questionCount() != null ? request.questionCount() : 10;
-        List<QuestionVersion> versions = selectQuestions(request, employeeId);
+        List<QuestionVersion> versions = new ArrayList<>(selectQuestions(request, employeeId));
         if (versions.isEmpty()) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "暂无可用题目", 422);
         }
         if ("sequential".equals(request.mode())) {
-            versions.sort(java.util.Comparator.comparing(QuestionVersion::getId));
+            versions.sort(Comparator.comparing(QuestionVersion::getId));
         } else {
             Collections.shuffle(versions);
         }
@@ -104,6 +111,7 @@ public class PracticeService {
         session.setQuestionCount(selected.size());
         sessionRepository.save(session);
 
+        List<PracticeSessionItem> items = new ArrayList<>(selected.size());
         int order = 1;
         for (QuestionVersion version : selected) {
             PracticeSessionItem item = new PracticeSessionItem();
@@ -111,8 +119,9 @@ public class PracticeService {
             item.setPracticeSessionId(session.getId());
             item.setItemOrder(order++);
             item.setQuestionVersionId(version.getId());
-            sessionItemRepository.save(item);
+            items.add(item);
         }
+        sessionItemRepository.saveAll(items);
         return sessionToDto(session);
     }
 
@@ -184,40 +193,41 @@ public class PracticeService {
 
     private List<QuestionVersion> selectQuestions(CreatePracticeSessionRequest request, String employeeId) {
         if ("wrongBook".equals(request.mode())) {
-            List<String> versionIds = wrongBookRepository.findByEmployeeIdOrderByUpdatedAtDesc(
-                            employeeId, PageRequest.of(0, 200)).getContent().stream()
-                    .map(WrongBookEntry::getQuestionVersionId).toList();
-            return versionIds.stream()
-                    .map(questionService::requireVersion)
-                    .filter(v -> request.questionBankId().equals(findBankIdForVersion(v)))
-                    .toList();
+            return selectFromWrongBook(request.questionBankId(), employeeId);
         }
 
-        List<QuestionVersion> versions = questionService.findActiveVersionsByBank(request.questionBankId());
-        if (request.scope() != null) {
-            if (request.scope().knowledgePointId() != null && !request.scope().knowledgePointId().isBlank()) {
-                versions = versions.stream()
-                        .filter(v -> request.scope().knowledgePointId().equals(findKnowledgePointId(v)))
-                        .toList();
-            } else if (request.scope().categoryId() != null && !request.scope().categoryId().isBlank()) {
-                versions = versions.stream()
-                        .filter(v -> request.scope().categoryId().equals(findCategoryId(v)))
-                        .toList();
+        String categoryId = request.scope() != null ? request.scope().categoryId() : null;
+        String knowledgePointId = request.scope() != null ? request.scope().knowledgePointId() : null;
+        // A knowledge point already implies its category, so the narrower filter wins.
+        if (knowledgePointId != null && !knowledgePointId.isBlank()) {
+            categoryId = null;
+        }
+        return questionService.findActiveVersionsByScope(request.questionBankId(), categoryId, knowledgePointId);
+    }
+
+    private List<QuestionVersion> selectFromWrongBook(String bankId, String employeeId) {
+        List<String> versionIds = wrongBookRepository.findByEmployeeIdOrderByUpdatedAtDesc(
+                        employeeId, PageRequest.of(0, WRONG_BOOK_LIMIT)).getContent().stream()
+                .map(WrongBookEntry::getQuestionVersionId)
+                .toList();
+        if (versionIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, QuestionVersion> versions = questionService.requireVersions(new LinkedHashSet<>(versionIds));
+        Map<String, Question> questions = questionService.findQuestionsByIds(versions.values().stream()
+                .map(QuestionVersion::getQuestionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+
+        List<QuestionVersion> selected = new ArrayList<>();
+        for (String versionId : versionIds) {
+            QuestionVersion version = versions.get(versionId);
+            Question question = questions.get(version.getQuestionId());
+            if (question != null && bankId.equals(question.getQuestionBankId())) {
+                selected.add(version);
             }
         }
-        return versions;
-    }
-
-    private String findBankIdForVersion(QuestionVersion version) {
-        return questionService.requireQuestion(version.getQuestionId()).getQuestionBankId();
-    }
-
-    private String findCategoryId(QuestionVersion version) {
-        return questionService.requireQuestion(version.getQuestionId()).getCategoryId();
-    }
-
-    private String findKnowledgePointId(QuestionVersion version) {
-        return questionService.requireQuestion(version.getQuestionId()).getKnowledgePointId();
+        return selected;
     }
 
     private PracticeSession getSessionEntity(String id) {
@@ -260,9 +270,13 @@ public class PracticeService {
     }
 
     private List<Map<String, Object>> buildSessionItems(String sessionId) {
-        return sessionItemRepository.findByPracticeSessionIdOrderByItemOrderAsc(sessionId).stream()
+        List<PracticeSessionItem> items = sessionItemRepository.findByPracticeSessionIdOrderByItemOrderAsc(sessionId);
+        Map<String, QuestionVersion> versions = questionService.requireVersions(items.stream()
+                .map(PracticeSessionItem::getQuestionVersionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        return items.stream()
                 .map(item -> {
-                    QuestionVersion version = questionService.requireVersion(item.getQuestionVersionId());
+                    QuestionVersion version = versions.get(item.getQuestionVersionId());
                     Map<String, Object> itemDto = new HashMap<>();
                     itemDto.put("itemId", item.getId());
                     itemDto.put("order", item.getItemOrder());

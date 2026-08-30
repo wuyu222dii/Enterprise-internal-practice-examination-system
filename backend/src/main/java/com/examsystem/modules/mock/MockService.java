@@ -26,6 +26,7 @@ import com.examsystem.security.SecurityUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -34,8 +35,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class MockService {
@@ -90,9 +93,13 @@ public class MockService {
             throw BusinessException.of(ErrorCode.QST_BANK_DISABLED, "题库未开放模拟", 422);
         }
 
-        List<QuestionVersion> versions = questionService.findActiveVersionsByBank(request.questionBankId());
-        Collections.shuffle(versions);
-        List<QuestionVersion> selected = versions.subList(0, Math.min(request.questionCount(), versions.size()));
+        // Draw from candidate ids and hydrate only the drawn versions.
+        List<String> candidateIds = new ArrayList<>(
+                questionService.findActiveVersionIdsByBank(request.questionBankId(), null));
+        Collections.shuffle(candidateIds);
+        List<String> drawnIds = candidateIds.subList(0, Math.min(request.questionCount(), candidateIds.size()));
+        Map<String, QuestionVersion> drawn = questionService.requireVersions(new LinkedHashSet<>(drawnIds));
+        List<QuestionVersion> selected = drawnIds.stream().map(drawn::get).toList();
 
         Instant now = Instant.now();
         MockAttempt attempt = new MockAttempt();
@@ -105,6 +112,7 @@ public class MockService {
         attempt.setExpiresAt(now.plus(Duration.ofMinutes(request.durationMinutes())));
         attemptRepository.save(attempt);
 
+        List<MockPaperItem> paperItems = new ArrayList<>(selected.size());
         int order = 1;
         for (QuestionVersion version : selected) {
             MockPaperItem item = new MockPaperItem();
@@ -113,13 +121,14 @@ public class MockService {
             item.setItemOrder(order++);
             item.setQuestionVersionId(version.getId());
             item.setScore(version.getDefaultScore());
-            paperItemRepository.save(item);
+            paperItems.add(item);
         }
+        paperItemRepository.saveAll(paperItems);
 
         Map<String, Object> response = new HashMap<>();
         response.put("attemptId", attempt.getId());
         response.put("status", attempt.getStatus());
-        response.put("paper", getPaper(attempt.getId()));
+        response.put("paper", buildPaperFromItems(attempt.getId(), paperItems));
         response.put("timing", buildTiming(attempt));
         return response;
     }
@@ -135,11 +144,14 @@ public class MockService {
     public Map<String, Object> getPaper(String id) {
         MockAttempt attempt = getAttemptEntity(id);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
-        List<MockPaperItem> items = paperItemRepository.findByMockAttemptIdOrderByItemOrderAsc(id);
+        return buildPaperFromItems(id, paperItemRepository.findByMockAttemptIdOrderByItemOrderAsc(id));
+    }
+
+    private Map<String, Object> buildPaperFromItems(String attemptId, List<MockPaperItem> items) {
         List<PaperHelper.PaperItemSource> sources = items.stream()
                 .map(i -> new PaperHelper.PaperItemSource(i.getId(), i.getItemOrder(), i.getQuestionVersionId(), i.getScore()))
                 .toList();
-        return PaperHelper.buildPaper(id, sources, questionService);
+        return PaperHelper.buildPaper(attemptId, sources, questionService);
     }
 
     @Transactional
@@ -175,6 +187,19 @@ public class MockService {
     public void submit(String attemptId) {
         MockAttempt attempt = getAttemptEntity(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
+        finishAttempt(attempt);
+    }
+
+    /**
+     * System-initiated timeout submission: no authenticated principal on the scheduler thread, and a
+     * dedicated transaction so one failure does not roll back the rest of the batch.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void autoSubmitAttempt(String attemptId) {
+        finishAttempt(getAttemptEntity(attemptId));
+    }
+
+    private void finishAttempt(MockAttempt attempt) {
         if (!"in_progress".equals(attempt.getStatus())) {
             return;
         }
@@ -214,26 +239,30 @@ public class MockService {
                 result.getTotalElements(), page, pageSize);
     }
 
-    @Transactional
-    public void autoSubmitExpiredAttempts() {
-        List<MockAttempt> expired = attemptRepository.findByStatusAndExpiresAtBefore("in_progress", Instant.now());
-        for (MockAttempt attempt : expired) {
-            submit(attempt.getId());
-        }
+    public List<String> findExpiredAttemptIds() {
+        return attemptRepository.findByStatusAndExpiresAtBefore("in_progress", Instant.now()).stream()
+                .map(MockAttempt::getId)
+                .toList();
     }
 
     private void scoreAttempt(MockAttempt attempt) {
         List<MockPaperItem> items = paperItemRepository.findByMockAttemptIdOrderByItemOrderAsc(attempt.getId());
+        Map<String, QuestionVersion> versions = questionService.requireVersions(items.stream()
+                .map(MockPaperItem::getQuestionVersionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        Map<String, List<String>> answersByItem = new HashMap<>();
+        for (MockAnswer answer : answerRepository.findByMockAttemptId(attempt.getId())) {
+            answersByItem.put(answer.getPaperItemId(), JsonHelper.toStringList(answer.getAnswerJson()));
+        }
+
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal max = BigDecimal.ZERO;
         List<Map<String, Object>> details = new ArrayList<>();
 
         for (MockPaperItem item : items) {
             max = max.add(item.getScore());
-            QuestionVersion version = questionService.requireVersion(item.getQuestionVersionId());
-            List<String> userAnswer = answerRepository.findByMockAttemptIdAndPaperItemId(attempt.getId(), item.getId())
-                    .map(a -> JsonHelper.toStringList(a.getAnswerJson()))
-                    .orElse(List.of());
+            QuestionVersion version = versions.get(item.getQuestionVersionId());
+            List<String> userAnswer = answersByItem.getOrDefault(item.getId(), List.of());
             boolean correct = scoringService.isCorrect(version.getType(), version.getStandardAnswer(), userAnswer);
             if (correct) {
                 total = total.add(item.getScore());

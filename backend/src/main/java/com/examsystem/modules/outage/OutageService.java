@@ -17,6 +17,7 @@ import com.examsystem.modules.outage.repository.OutageProposalRepository;
 import com.examsystem.security.SecurityUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,8 @@ import java.util.Map;
 
 @Service
 public class OutageService {
+
+    private static final int COMPENSATION_PAGE_SIZE = 500;
 
     private final OutageEventRepository eventRepository;
     private final OutageProposalRepository proposalRepository;
@@ -149,15 +152,29 @@ public class OutageService {
                 Instant base = exam.getStopAttemptAt() != null ? exam.getStopAttemptAt() : now;
                 exam.setStopAttemptAt(base.plus(extendMinutes, ChronoUnit.MINUTES));
                 examRepository.save(exam);
-                for (ExamAttempt attempt : attemptRepository.findByExamId(examId)) {
-                    if (!"inProgress".equals(attempt.getAttemptStatus())) {
-                        continue;
-                    }
-                    attempt.setExpiresAt(attempt.getExpiresAt().plus(extendMinutes, ChronoUnit.MINUTES));
-                    attemptRepository.save(attempt);
-                }
+                extendInProgressAttempts(examId, extendMinutes);
             });
         }
+    }
+
+    /**
+     * Only in-progress attempts are fetched, page by page, so compensating a 2,000-person exam never
+     * loads its full attempt history.
+     */
+    private void extendInProgressAttempts(String examId, int extendMinutes) {
+        int pageIndex = 0;
+        Page<ExamAttempt> page;
+        do {
+            page = attemptRepository.findByExamIdAndAttemptStatus(
+                    examId, "inProgress", PageRequest.of(pageIndex, COMPENSATION_PAGE_SIZE, Sort.by("id")));
+            for (ExamAttempt attempt : page.getContent()) {
+                attempt.setExpiresAt(attempt.getExpiresAt().plus(extendMinutes, ChronoUnit.MINUTES));
+                attempt.setCompensationSeconds(attempt.getCompensationSeconds() + extendMinutes * 60);
+            }
+            attemptRepository.saveAll(page.getContent());
+            attemptRepository.flush();
+            pageIndex++;
+        } while (page.hasNext());
     }
 
     private void requireOutageAuthorized() {

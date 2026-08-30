@@ -22,6 +22,8 @@ exam:
     session-ttl-hours: 1
   scheduler:
     auto-submit-ms: 3600000
+  storage:
+    local-path: ./target/test-storage
 
 logging:
   level:

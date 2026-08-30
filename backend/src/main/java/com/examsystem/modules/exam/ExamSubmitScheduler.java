@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 public class ExamSubmitScheduler {
 
@@ -18,7 +20,22 @@ public class ExamSubmitScheduler {
 
     @Scheduled(fixedDelayString = "${exam.scheduler.auto-submit-ms:60000}")
     public void autoSubmitExpiredAttempts() {
-        log.debug("Scanning expired exam attempts for auto submit");
-        examService.autoSubmitExpiredAttempts();
+        List<String> attemptIds = examService.findExpiredAttemptIds();
+        if (attemptIds.isEmpty()) {
+            return;
+        }
+
+        int submitted = 0;
+        for (String attemptId : attemptIds) {
+            try {
+                // Each attempt commits on its own so a single failure cannot take down the batch
+                // when hundreds of attempts expire in the same second (PERF-03).
+                examService.autoSubmitAttempt(attemptId);
+                submitted++;
+            } catch (Exception e) {
+                log.warn("Auto submit failed for exam attempt {}", attemptId, e);
+            }
+        }
+        log.info("Auto submitted {} of {} expired exam attempts", submitted, attemptIds.size());
     }
 }

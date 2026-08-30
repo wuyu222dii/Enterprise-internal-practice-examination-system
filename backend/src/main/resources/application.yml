@@ -5,6 +5,13 @@ spring:
     url: jdbc:postgresql://localhost:5433/exam_system
     username: exam
     password: exam_dev
+    hikari:
+      # Sized for the 500-concurrent-answering target; the default of 10 connections starves
+      # request threads long before the request-latency budget in requirement 17.2 is reached.
+      maximum-pool-size: 60
+      minimum-idle: 10
+      connection-timeout: 10000
+      max-lifetime: 1800000
   jpa:
     hibernate:
       ddl-auto: validate
@@ -13,6 +20,11 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+          # Assignment expansion, paper generation and batch import insert hundreds of rows per
+          # transaction; without batching each row costs a round trip.
+          batch_size: 500
+        order_inserts: true
+        order_updates: true
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -27,6 +39,15 @@ server:
   port: 8088
   servlet:
     context-path: /api/v1
+  tomcat:
+    threads:
+      max: 300
+      min-spare: 30
+    # 500 employees opening their paper inside the same 60-second window arrive as a connection
+    # burst; the default accept queue of 100 makes the kernel reset the surplus connections.
+    accept-count: 1000
+    max-connections: 10000
+    connection-timeout: 20s
 
 exam:
   security:
@@ -34,6 +55,7 @@ exam:
     lock-duration-minutes: 15
     max-failed-attempts: 5
   storage:
+    local-path: ./data/storage
     minio-endpoint: http://localhost:19000
     minio-access-key: minioadmin
     minio-secret-key: minioadmin

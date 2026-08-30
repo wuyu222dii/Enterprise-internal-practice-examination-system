@@ -3,6 +3,7 @@ package com.examsystem.modules.organization;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.auth.SessionService;
 import com.examsystem.modules.organization.dto.AdminGrantsRequest;
@@ -23,6 +24,7 @@ import com.examsystem.modules.organization.repository.DepartmentRepository;
 import com.examsystem.modules.organization.repository.EmployeeCredentialBatchRepository;
 import com.examsystem.modules.organization.repository.EmployeeRepository;
 import com.examsystem.security.SecurityUtils;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +49,7 @@ public class OrganizationService {
     private final DepartmentRepository departmentRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeCredentialBatchRepository credentialBatchRepository;
-    private final CredentialBatchStore credentialBatchStore;
+    private final FileStore fileStore;
     private final EmployeeImportService employeeImportService;
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessionService;
@@ -56,7 +59,7 @@ public class OrganizationService {
             DepartmentRepository departmentRepository,
             EmployeeRepository employeeRepository,
             EmployeeCredentialBatchRepository credentialBatchRepository,
-            CredentialBatchStore credentialBatchStore,
+            FileStore fileStore,
             EmployeeImportService employeeImportService,
             PasswordEncoder passwordEncoder,
             SessionService sessionService,
@@ -65,7 +68,7 @@ public class OrganizationService {
         this.departmentRepository = departmentRepository;
         this.employeeRepository = employeeRepository;
         this.credentialBatchRepository = credentialBatchRepository;
-        this.credentialBatchStore = credentialBatchStore;
+        this.fileStore = fileStore;
         this.employeeImportService = employeeImportService;
         this.passwordEncoder = passwordEncoder;
         this.sessionService = sessionService;
@@ -150,7 +153,7 @@ public class OrganizationService {
         int safePage = Math.max(page, 1);
         int safePageSize = Math.min(Math.max(pageSize, 1), 100);
         Pageable pageable = PageRequest.of(safePage - 1, safePageSize);
-        Page<Employee> result = employeeRepository.search(
+        Page<Employee> result = employeeRepository.searchEmployees(
                 blankToNull(departmentId),
                 blankToNull(status),
                 blankToNull(keyword),
@@ -320,7 +323,8 @@ public class OrganizationService {
         return employeeImportService.importEmployees(file);
     }
 
-    public byte[] downloadCredentialBatch(String batchId) {
+    @Transactional
+    public Resource downloadCredentialBatch(String batchId) {
         EmployeeCredentialBatch batch = credentialBatchRepository.findById(batchId)
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "凭据批次不存在", 404));
 
@@ -335,7 +339,7 @@ public class OrganizationService {
             throw BusinessException.of(ErrorCode.ORG_CREDENTIAL_ALREADY_DOWNLOADED, "凭据已下载过", 410);
         }
 
-        byte[] content = credentialBatchStore.get(batchId)
+        Resource content = fileStore.read(batch.getFileKey())
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "凭据文件不存在", 404));
 
         batch.setDownloadedAt(Instant.now());
@@ -375,13 +379,14 @@ public class OrganizationService {
     }
 
     private void updateDescendantPaths(Department department, String oldPathPrefix) {
-        List<Department> allDepartments = departmentRepository.findAllByOrderByPathAsc();
-        for (Department descendant : allDepartments) {
+        List<Department> updated = new ArrayList<>();
+        for (Department descendant : departmentRepository.findAllByOrderByPathAsc()) {
             if (descendant.getPath().startsWith(oldPathPrefix + "/")) {
                 descendant.setPath(department.getPath() + descendant.getPath().substring(oldPathPrefix.length()));
-                departmentRepository.save(descendant);
+                updated.add(descendant);
             }
         }
+        departmentRepository.saveAll(updated);
     }
 
     private List<DepartmentDto> buildDepartmentTree(List<Department> departments, Map<String, Long> employeeCounts) {

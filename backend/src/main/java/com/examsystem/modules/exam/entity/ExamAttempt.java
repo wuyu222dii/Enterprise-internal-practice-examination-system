@@ -20,6 +20,8 @@ public class ExamAttempt {
     @Column(name = "started_at", nullable = false) private Instant startedAt;
     @Column(name = "expires_at", nullable = false) private Instant expiresAt;
     @Column(name = "submit_reason", length = 30) private String submitReason;
+    @Column(name = "submitted_at") private Instant submittedAt;
+    @Column(name = "compensation_seconds", nullable = false) private int compensationSeconds;
     @Column(nullable = false) private boolean voided;
     @Column(name = "void_reason", columnDefinition = "text") private String voidReason;
     @CreationTimestamp @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
@@ -49,6 +51,10 @@ public class ExamAttempt {
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public String getSubmitReason() { return submitReason; }
     public void setSubmitReason(String submitReason) { this.submitReason = submitReason; }
+    public Instant getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }
+    public int getCompensationSeconds() { return compensationSeconds; }
+    public void setCompensationSeconds(int compensationSeconds) { this.compensationSeconds = compensationSeconds; }
     public boolean isVoided() { return voided; }
     public void setVoided(boolean voided) { this.voided = voided; }
     public String getVoidReason() { return voidReason; }

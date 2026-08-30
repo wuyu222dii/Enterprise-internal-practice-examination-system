@@ -20,7 +20,15 @@ public interface ExamAttemptRepository extends JpaRepository<ExamAttempt, String
 
     List<ExamAttempt> findByAttemptStatusAndExpiresAtBefore(String status, Instant expiresAt);
 
+    Page<ExamAttempt> findByExamIdAndAttemptStatus(String examId, String attemptStatus, Pageable pageable);
+
     long countByExamIdAndEmployeeId(String examId, String employeeId);
 
+    long countByExamId(String examId);
+
+    long countByExamIdAndAttemptStatus(String examId, String attemptStatus);
+
     Page<ExamAttempt> findByEmployeeIdOrderByCreatedAtDesc(String employeeId, Pageable pageable);
+
+    Page<ExamAttempt> findByExamIdOrderByEmployeeIdAscAttemptNumberAsc(String examId, Pageable pageable);
 }

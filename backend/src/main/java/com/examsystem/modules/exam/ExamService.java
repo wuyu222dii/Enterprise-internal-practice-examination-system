@@ -37,6 +37,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -46,12 +47,17 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class ExamService {
+
+    private static final int BATCH_SIZE = 500;
 
     private final ExamRepository examRepository;
     private final ExamPublishedVersionRepository publishedVersionRepository;
@@ -180,6 +186,9 @@ public class ExamService {
         if (ruleLines.isEmpty()) {
             issues.add(issue("EXM_MISSING_RULES", "未配置组卷规则"));
         } else {
+            // 50 rule lines usually target the same bank and type; without this cache the candidate
+            // pool would be re-read once per line (requirement 17.2 allows 30s for the whole check).
+            Map<String, List<String>> poolCache = new HashMap<>();
             for (int i = 0; i < ruleLines.size(); i++) {
                 Map<String, Object> line = ruleLines.get(i);
                 String bankId = stringValue(line.get("bankId"));
@@ -193,8 +202,7 @@ public class ExamService {
                     issues.add(issue("EXM_INVALID_DRAW_COUNT", "规则行 " + (i + 1) + " 抽题数量无效", i));
                     continue;
                 }
-                List<QuestionVersion> pool = filterVersionsByType(
-                        questionService.findActiveVersionsByBank(bankId), type);
+                List<String> pool = candidateVersionIds(poolCache, bankId, type);
                 if (pool.size() < drawCount) {
                     Map<String, Object> poolIssue = issue("EXM_INSUFFICIENT_POOL",
                             "规则行 " + (i + 1) + " 题池不足", i);
@@ -263,6 +271,7 @@ public class ExamService {
         publishedVersionRepository.save(version);
 
         List<Map<String, Object>> ruleLines = mapList(rules.get("ruleLines"));
+        List<ExamRuleLine> ruleLineEntities = new ArrayList<>(ruleLines.size());
         int lineOrder = 1;
         for (Map<String, Object> line : ruleLines) {
             ExamRuleLine ruleLine = new ExamRuleLine();
@@ -277,8 +286,9 @@ public class ExamService {
             ruleLine.setFilterJson(JsonHelper.toJson(filter));
             ruleLine.setDrawCount(intValue(line.get("drawCount"), 1));
             ruleLine.setScorePerQuestion(decimalValue(line.get("scorePerQuestion"), BigDecimal.ONE));
-            ruleLineRepository.save(ruleLine);
+            ruleLineEntities.add(ruleLine);
         }
+        ruleLineRepository.saveAll(ruleLineEntities);
 
         createAssignments(version.getId(), section(config, "assignments"));
 
@@ -316,18 +326,23 @@ public class ExamService {
 
     public Map<String, Object> getMonitor(String id) {
         SecurityUtils.requireAdmin();
-        List<ExamAttempt> attempts = attemptRepository.findByExamId(id);
-        return Map.of("examId", id, "attemptCount", attempts.size());
+        return Map.of("examId", id, "attemptCount", attemptRepository.countByExamId(id));
     }
 
     public List<Map<String, Object>> listExamTasks() {
         String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
-        return assignmentRepository.findByEmployeeId(employeeId).stream()
-                .map(a -> {
-                    ExamPublishedVersion pv = publishedVersionRepository.findById(a.getPublishedVersionId()).orElseThrow();
-                    Exam exam = getExam(pv.getExamId());
-                    return examToDto(exam);
-                }).toList();
+        List<ExamAssignment> assignments = assignmentRepository.findByEmployeeId(employeeId);
+        if (assignments.isEmpty()) {
+            return List.of();
+        }
+
+        Set<String> versionIds = assignments.stream()
+                .map(ExamAssignment::getPublishedVersionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> examIds = publishedVersionRepository.findAllById(versionIds).stream()
+                .map(ExamPublishedVersion::getExamId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return examRepository.findAllById(examIds).stream().map(this::examToDto).toList();
     }
 
     public Map<String, Object> getExamTaskDetail(String id) {
@@ -402,8 +417,8 @@ public class ExamService {
                     .orElseThrow(() -> ex);
         }
 
-        generatePaper(attempt);
-        return buildStartResponse(attempt);
+        // Reuse the freshly generated items instead of re-reading the paper we just wrote.
+        return buildStartResponse(attempt, generatePaper(attempt));
     }
 
     public Map<String, Object> getActiveAttemptForExam(String examId) {
@@ -434,7 +449,10 @@ public class ExamService {
     public Map<String, Object> getPaper(String attemptId) {
         ExamAttempt attempt = getAttempt(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
-        List<ExamPaperItem> items = paperItemRepository.findByExamAttemptIdOrderByItemOrderAsc(attemptId);
+        return buildPaperFromItems(attemptId, paperItemRepository.findByExamAttemptIdOrderByItemOrderAsc(attemptId));
+    }
+
+    private Map<String, Object> buildPaperFromItems(String attemptId, List<ExamPaperItem> items) {
         List<PaperHelper.PaperItemSource> sources = items.stream()
                 .map(i -> new PaperHelper.PaperItemSource(i.getId(), i.getItemOrder(), i.getQuestionVersionId(), i.getScore()))
                 .toList();
@@ -486,8 +504,33 @@ public class ExamService {
             throw BusinessException.of(ErrorCode.ANS_UNCONFIRMED_ANSWERS, "存在未确认答案", 409);
         }
 
+        finishAttempt(attempt, reason);
+    }
+
+    public List<String> findExpiredAttemptIds() {
+        return attemptRepository.findByAttemptStatusAndExpiresAtBefore("inProgress", Instant.now()).stream()
+                .map(ExamAttempt::getId)
+                .toList();
+    }
+
+    /**
+     * System-initiated timeout submission. Runs in its own transaction so that one failing attempt
+     * cannot roll back a whole batch of simultaneous expiries, and skips the owner check because
+     * there is no authenticated principal on the scheduler thread.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void autoSubmitAttempt(String attemptId) {
+        ExamAttempt attempt = getAttempt(attemptId);
+        if (!"inProgress".equals(attempt.getAttemptStatus())) {
+            return;
+        }
+        finishAttempt(attempt, "timeout");
+    }
+
+    private void finishAttempt(ExamAttempt attempt, String reason) {
         attempt.setAttemptStatus("completed");
         attempt.setSubmitReason(reason != null ? reason : "manual");
+        attempt.setSubmittedAt(Instant.now());
         attemptRepository.save(attempt);
         scoreAttempt(attempt);
     }
@@ -545,53 +588,55 @@ public class ExamService {
         return Boolean.parseBoolean(String.valueOf(value));
     }
 
-    @Transactional
-    public void autoSubmitExpiredAttempts() {
-        List<ExamAttempt> expired = attemptRepository.findByAttemptStatusAndExpiresAtBefore("inProgress", Instant.now());
-        for (ExamAttempt attempt : expired) {
-            submitAttempt(attempt.getId(), "timeout");
-        }
-    }
-
     public ExamAttempt getAttempt(String attemptId) {
         return attemptRepository.findById(attemptId)
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "尝试不存在", 404));
     }
 
-    private void generatePaper(ExamAttempt attempt) {
+    private List<ExamPaperItem> generatePaper(ExamAttempt attempt) {
         List<ExamRuleLine> ruleLines = ruleLineRepository
                 .findByPublishedVersionIdOrderByLineOrderAsc(attempt.getPublishedVersionId());
         if (ruleLines.isEmpty()) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "发布版本缺少组卷规则", 422);
         }
 
+        List<ExamPaperItem> paperItems = new ArrayList<>();
+        // Only candidate ids are read: a 10,000-question bank must not be hydrated on every attempt
+        // start (PERF-02 caps the start at P95 <= 3s under 500 concurrent opens).
+        Map<String, List<String>> poolCache = new HashMap<>();
         int order = 1;
         for (ExamRuleLine ruleLine : ruleLines) {
             Map<String, Object> filter = JsonHelper.toMap(ruleLine.getFilterJson());
             String bankId = stringValue(filter.get("bankId"));
             String type = stringValue(filter.get("type"));
-            List<QuestionVersion> pool = filterVersionsByType(
-                    questionService.findActiveVersionsByBank(bankId), type);
-            List<QuestionVersion> shuffled = new ArrayList<>(pool);
-            Collections.shuffle(shuffled);
+            List<String> pool = candidateVersionIds(poolCache, bankId, type);
 
-            int drawCount = Math.min(ruleLine.getDrawCount(), shuffled.size());
-            if (drawCount < ruleLine.getDrawCount()) {
+            if (pool.size() < ruleLine.getDrawCount()) {
                 throw BusinessException.of(ErrorCode.VALIDATION_ERROR,
-                        "题池不足，无法组卷（需要 " + ruleLine.getDrawCount() + "，可用 " + shuffled.size() + "）", 422);
+                        "题池不足，无法组卷（需要 " + ruleLine.getDrawCount() + "，可用 " + pool.size() + "）", 422);
             }
 
-            for (int i = 0; i < drawCount; i++) {
-                QuestionVersion version = shuffled.get(i);
+            List<String> shuffled = new ArrayList<>(pool);
+            Collections.shuffle(shuffled);
+            for (int i = 0; i < ruleLine.getDrawCount(); i++) {
                 ExamPaperItem item = new ExamPaperItem();
                 item.setId(IdGenerator.newId("epi"));
                 item.setExamAttemptId(attempt.getId());
                 item.setItemOrder(order++);
-                item.setQuestionVersionId(version.getId());
+                item.setQuestionVersionId(shuffled.get(i));
                 item.setScore(ruleLine.getScorePerQuestion());
-                paperItemRepository.save(item);
+                paperItems.add(item);
             }
         }
+        paperItemRepository.saveAll(paperItems);
+        return paperItems;
+    }
+
+    private List<String> candidateVersionIds(Map<String, List<String>> cache, String bankId, String type) {
+        // Several rule lines usually share the same bank and type, so the pool is read once per key.
+        return cache.computeIfAbsent(
+                bankId + '\u0000' + (type == null ? "" : type),
+                key -> questionService.findActiveVersionIdsByBank(bankId, type));
     }
 
     private void applyBasicWizardData(Exam exam, Map<String, Object> body) {
@@ -611,30 +656,70 @@ public class ExamService {
 
     private void createAssignments(String publishedVersionId, Map<String, Object> assignments) {
         String mode = assignments.getOrDefault("mode", "allActive").toString();
-        List<Employee> employees;
         if ("selected".equals(mode)) {
             List<String> employeeIds = stringList(assignments.get("employeeIds"));
-            employees = employeeIds.stream()
-                    .map(id -> employeeRepository.findById(id)
-                            .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "员工不存在: " + id, 404)))
-                    .filter(employee -> "active".equals(employee.getStatus()))
-                    .toList();
-        } else {
-            employees = employeeRepository.search(null, "active", null, PageRequest.of(0, 1000)).getContent();
+            for (int from = 0; from < employeeIds.size(); from += BATCH_SIZE) {
+                List<String> chunk = employeeIds.subList(from, Math.min(from + BATCH_SIZE, employeeIds.size()));
+                Map<String, Employee> found = employeeRepository.findAllById(chunk).stream()
+                        .collect(Collectors.toMap(Employee::getId, employee -> employee));
+                List<Employee> active = new ArrayList<>(chunk.size());
+                for (String employeeId : chunk) {
+                    Employee employee = found.get(employeeId);
+                    if (employee == null) {
+                        throw BusinessException.of(ErrorCode.NOT_FOUND, "员工不存在: " + employeeId, 404);
+                    }
+                    if ("active".equals(employee.getStatus())) {
+                        active.add(employee);
+                    }
+                }
+                saveAssignmentBatch(publishedVersionId, active);
+            }
+            return;
         }
 
+        int pageIndex = 0;
+        Page<Employee> page;
+        do {
+            page = employeeRepository.searchEmployees(null, "active", null, PageRequest.of(pageIndex, BATCH_SIZE));
+            saveAssignmentBatch(publishedVersionId, page.getContent());
+            pageIndex++;
+        } while (page.hasNext());
+    }
+
+    private void saveAssignmentBatch(String publishedVersionId, List<Employee> employees) {
+        if (employees.isEmpty()) {
+            return;
+        }
+        Map<String, String> departmentPaths = loadDepartmentPaths(employees);
+        List<ExamAssignment> batch = new ArrayList<>(employees.size());
         for (Employee employee : employees) {
-            Department dept = departmentRepository.findById(employee.getDepartmentId())
-                    .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "部门不存在", 404));
+            String departmentPath = departmentPaths.get(employee.getDepartmentId());
+            if (departmentPath == null) {
+                throw BusinessException.of(ErrorCode.NOT_FOUND, "部门不存在", 404);
+            }
             ExamAssignment assignment = new ExamAssignment();
             assignment.setId(IdGenerator.newId("asg"));
             assignment.setPublishedVersionId(publishedVersionId);
             assignment.setEmployeeId(employee.getId());
             assignment.setEmployeeNoSnapshot(employee.getEmployeeNo());
             assignment.setDisplayNameSnapshot(employee.getDisplayName());
-            assignment.setDepartmentPathSnapshot(dept.getPath());
-            assignmentRepository.save(assignment);
+            assignment.setDepartmentPathSnapshot(departmentPath);
+            batch.add(assignment);
         }
+        assignmentRepository.saveAll(batch);
+        assignmentRepository.flush();
+    }
+
+    private Map<String, String> loadDepartmentPaths(List<Employee> employees) {
+        Set<String> departmentIds = employees.stream()
+                .map(Employee::getDepartmentId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (departmentIds.isEmpty()) {
+            return Map.of();
+        }
+        return departmentRepository.findAllById(departmentIds).stream()
+                .collect(Collectors.toMap(Department::getId, Department::getPath));
     }
 
     private long countPlannedAssignees(Map<String, Object> assignments) {
@@ -642,14 +727,7 @@ public class ExamService {
         if ("selected".equals(mode)) {
             return stringList(assignments.get("employeeIds")).size();
         }
-        return employeeRepository.search(null, "active", null, PageRequest.of(0, 1)).getTotalElements();
-    }
-
-    private List<QuestionVersion> filterVersionsByType(List<QuestionVersion> versions, String type) {
-        if (type == null || type.isBlank()) {
-            return versions;
-        }
-        return versions.stream().filter(v -> type.equals(v.getType())).toList();
+        return employeeRepository.searchEmployees(null, "active", null, PageRequest.of(0, 1)).getTotalElements();
     }
 
     private String normalizeWizardStep(String step) {
@@ -750,16 +828,24 @@ public class ExamService {
 
     private void scoreAttempt(ExamAttempt attempt) {
         List<ExamPaperItem> items = paperItemRepository.findByExamAttemptIdOrderByItemOrderAsc(attempt.getId());
+        // Scoring runs for every expiring attempt at once (PERF-03), so both the versions and the
+        // answers are fetched in one query each rather than per paper item.
+        Map<String, QuestionVersion> versions = questionService.requireVersions(items.stream()
+                .map(ExamPaperItem::getQuestionVersionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        Map<String, List<String>> answersByItem = new HashMap<>();
+        for (ExamAnswer answer : answerRepository.findByExamAttemptId(attempt.getId())) {
+            answersByItem.put(answer.getPaperItemId(), JsonHelper.toStringList(answer.getAnswerJson()));
+        }
+
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal max = BigDecimal.ZERO;
         List<Map<String, Object>> details = new ArrayList<>();
 
         for (ExamPaperItem item : items) {
             max = max.add(item.getScore());
-            QuestionVersion version = questionService.requireVersion(item.getQuestionVersionId());
-            List<String> userAnswer = answerRepository.findByExamAttemptIdAndPaperItemId(attempt.getId(), item.getId())
-                    .map(a -> JsonHelper.toStringList(a.getAnswerJson()))
-                    .orElse(List.of());
+            QuestionVersion version = versions.get(item.getQuestionVersionId());
+            List<String> userAnswer = answersByItem.getOrDefault(item.getId(), List.of());
             boolean correct = scoringService.isCorrect(version.getType(), version.getStandardAnswer(), userAnswer);
             if (correct) {
                 total = total.add(item.getScore());
@@ -805,11 +891,15 @@ public class ExamService {
     }
 
     private Map<String, Object> buildStartResponse(ExamAttempt attempt) {
+        return buildStartResponse(attempt, paperItemRepository.findByExamAttemptIdOrderByItemOrderAsc(attempt.getId()));
+    }
+
+    private Map<String, Object> buildStartResponse(ExamAttempt attempt, List<ExamPaperItem> items) {
         Map<String, Object> response = new HashMap<>();
         response.put("attemptId", attempt.getId());
         response.put("attemptNumber", attempt.getAttemptNumber());
         response.put("attemptStatus", attempt.getAttemptStatus());
-        response.put("paper", getPaper(attempt.getId()));
+        response.put("paper", buildPaperFromItems(attempt.getId(), items));
         response.put("timing", buildTiming(attempt));
         return response;
     }

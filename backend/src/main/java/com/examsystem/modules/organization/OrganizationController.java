@@ -14,6 +14,7 @@ import com.examsystem.modules.organization.dto.ResetPasswordResponse;
 import com.examsystem.modules.organization.dto.UpdateDepartmentRequest;
 import com.examsystem.modules.organization.dto.UpdateEmployeeRequest;
 import jakarta.validation.Valid;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -125,8 +126,8 @@ public class OrganizationController {
     }
 
     @GetMapping("/employees/credential-batches/{id}/download")
-    public ResponseEntity<byte[]> downloadCredentialBatch(@PathVariable String id) {
-        byte[] content = organizationService.downloadCredentialBatch(id);
+    public ResponseEntity<Resource> downloadCredentialBatch(@PathVariable String id) {
+        Resource content = organizationService.downloadCredentialBatch(id);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"credentials-" + id + ".xlsx\"")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)

@@ -3,6 +3,8 @@ package com.examsystem.common;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.util.Collections;
 import java.util.List;
@@ -10,7 +12,11 @@ import java.util.Map;
 
 public final class JsonHelper {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    // Persisted payloads (idempotency records, audit diffs, attempt results) carry Instant values,
+    // so the mapper must handle java.time and emit ISO-8601 rather than numeric timestamps.
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private JsonHelper() {
     }

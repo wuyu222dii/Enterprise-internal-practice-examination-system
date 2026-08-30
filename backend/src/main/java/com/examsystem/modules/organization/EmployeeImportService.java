@@ -3,6 +3,7 @@ package com.examsystem.modules.organization;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.organization.dto.EmployeeImportResponse;
 import com.examsystem.modules.organization.entity.Department;
@@ -22,12 +23,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +46,7 @@ public class EmployeeImportService {
     private final EmployeeRepository employeeRepository;
     private final DepartmentRepository departmentRepository;
     private final EmployeeCredentialBatchRepository credentialBatchRepository;
-    private final CredentialBatchStore credentialBatchStore;
+    private final FileStore fileStore;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final DataFormatter dataFormatter = new DataFormatter();
@@ -54,14 +55,14 @@ public class EmployeeImportService {
             EmployeeRepository employeeRepository,
             DepartmentRepository departmentRepository,
             EmployeeCredentialBatchRepository credentialBatchRepository,
-            CredentialBatchStore credentialBatchStore,
+            FileStore fileStore,
             PasswordEncoder passwordEncoder,
             AuditService auditService
     ) {
         this.employeeRepository = employeeRepository;
         this.departmentRepository = departmentRepository;
         this.credentialBatchRepository = credentialBatchRepository;
-        this.credentialBatchStore = credentialBatchStore;
+        this.fileStore = fileStore;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
     }
@@ -77,12 +78,16 @@ public class EmployeeImportService {
 
         List<Map<String, Object>> skippedRows = new ArrayList<>();
         List<CredentialRow> created = new ArrayList<>();
-        Set<String> seenEmployeeNos = employeeRepository.findAll().stream()
-                .map(Employee::getEmployeeNo).collect(Collectors.toSet());
-        Set<String> seenPhones = employeeRepository.findAll().stream()
-                .map(Employee::getPhone).filter(p -> p != null && !p.isBlank()).collect(Collectors.toSet());
-        Set<String> batchEmployeeNos = new java.util.HashSet<>();
-        Set<String> batchPhones = new java.util.HashSet<>();
+        List<Employee> newEmployees = new ArrayList<>();
+        Set<String> seenEmployeeNos = new HashSet<>();
+        Set<String> seenPhones = new HashSet<>();
+        for (Object[] identifiers : employeeRepository.findAllIdentifiers()) {
+            seenEmployeeNos.add((String) identifiers[0]);
+            String phone = (String) identifiers[1];
+            if (phone != null && !phone.isBlank()) {
+                seenPhones.add(phone);
+            }
+        }
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(0);
@@ -110,11 +115,13 @@ public class EmployeeImportService {
                     skippedRows.add(skipRow(rowNum, "ORG_INVALID_DEPARTMENT_PATH"));
                     continue;
                 }
-                if (seenEmployeeNos.contains(employeeNo) || batchEmployeeNos.contains(employeeNo)) {
+                // Accepted rows are added to these sets below, so they also catch duplicates
+                // occurring within the uploaded file itself.
+                if (seenEmployeeNos.contains(employeeNo)) {
                     skippedRows.add(skipRow(rowNum, "ORG_DUPLICATE_EMPLOYEE_NO"));
                     continue;
                 }
-                if (!phone.isBlank() && (seenPhones.contains(phone) || batchPhones.contains(phone))) {
+                if (!phone.isBlank() && seenPhones.contains(phone)) {
                     skippedRows.add(skipRow(rowNum, "ORG_DUPLICATE_PHONE"));
                     continue;
                 }
@@ -133,22 +140,22 @@ public class EmployeeImportService {
                 employee.setHasOutageDisposition(false);
                 employee.setMustChangePassword(true);
                 employee.setFailedLoginCount(0);
-                employeeRepository.save(employee);
+                newEmployees.add(employee);
 
-                batchEmployeeNos.add(employeeNo);
-                if (!phone.isBlank()) {
-                    batchPhones.add(phone);
-                }
                 seenEmployeeNos.add(employeeNo);
                 if (!phone.isBlank()) {
                     seenPhones.add(phone);
                 }
                 created.add(new CredentialRow(employeeNo, displayName, tempPassword));
-                auditService.log("employee.create", "Employee", employee.getId(), null,
-                        Map.of("employeeNo", employeeNo, "source", "import"), null);
             }
         } catch (IOException e) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "文件解析失败", 422);
+        }
+
+        employeeRepository.saveAll(newEmployees);
+        for (Employee employee : newEmployees) {
+            auditService.log("employee.create", "Employee", employee.getId(), null,
+                    Map.of("employeeNo", employee.getEmployeeNo(), "source", "import"), null);
         }
 
         String credentialBatchId = null;
@@ -167,30 +174,30 @@ public class EmployeeImportService {
 
     private String saveCredentialBatch(List<CredentialRow> rows) {
         String batchId = IdGenerator.newId("ecb");
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet("credentials");
-            Row header = sheet.createRow(0);
-            header.createCell(0).setCellValue("employeeNo");
-            header.createCell(1).setCellValue("displayName");
-            header.createCell(2).setCellValue("temporaryPassword");
-            int idx = 1;
-            for (CredentialRow row : rows) {
-                Row r = sheet.createRow(idx++);
-                r.createCell(0).setCellValue(row.employeeNo());
-                r.createCell(1).setCellValue(row.displayName());
-                r.createCell(2).setCellValue(row.temporaryPassword());
+        String fileKey = "credentials/" + batchId + ".xlsx";
+        fileStore.write(fileKey, out -> {
+            try (Workbook workbook = new XSSFWorkbook()) {
+                Sheet sheet = workbook.createSheet("credentials");
+                Row header = sheet.createRow(0);
+                header.createCell(0).setCellValue("employeeNo");
+                header.createCell(1).setCellValue("displayName");
+                header.createCell(2).setCellValue("temporaryPassword");
+                int idx = 1;
+                for (CredentialRow row : rows) {
+                    Row r = sheet.createRow(idx++);
+                    r.createCell(0).setCellValue(row.employeeNo());
+                    r.createCell(1).setCellValue(row.displayName());
+                    r.createCell(2).setCellValue(row.temporaryPassword());
+                }
+                workbook.write(out);
             }
-            workbook.write(out);
-            credentialBatchStore.put(batchId, out.toByteArray());
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to build credential batch", e);
-        }
+        });
 
         EmployeeCredentialBatch batch = new EmployeeCredentialBatch();
         batch.setId(batchId);
         batch.setCreatedBy(SecurityUtils.requirePrincipal().getEmployeeId());
         batch.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
-        batch.setFileKey("credentials/" + batchId + ".xlsx");
+        batch.setFileKey(fileKey);
         credentialBatchRepository.save(batch);
         return batchId;
     }
