@@ -2,7 +2,7 @@
   <view class="card" wx:if="{{loading}}">加载中…</view>
   <view class="card" wx:if="{{error}}">
     <view class="error">{{error}}</view>
-    <navigator url="/pages/practice/practice">返回练习</navigator>
+    <navigator url="/pages/home/home" open-type="switchTab">返回练习</navigator>
   </view>
 
   <view class="card" wx:if="{{finished && !loading}}">
@@ -16,14 +16,14 @@
     <view class="stem">{{currentItem.stem}}</view>
 
     <view
-      wx:for="{{currentItem.options}}"
+      wx:for="{{displayOptions}}"
       wx:key="key"
-      class="option {{selectedKeys.indexOf(item.key) >= 0 ? 'selected' : ''}}"
+      class="option {{item.state}}"
       data-key="{{item.key}}"
       bindtap="onSelectOption"
     >
-      <text class="option-key">{{item.key}}.</text>
-      <text>{{item.text}}</text>
+      <text class="option-key">{{item.key}}</text>
+      <text class="option-text">{{item.text}}</text>
     </view>
 
     <view wx:if="{{!feedback}}">

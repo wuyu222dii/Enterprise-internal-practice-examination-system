@@ -2,6 +2,7 @@ package com.examsystem.modules.organization;
 
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
+import com.examsystem.common.ExcelCellHelper;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.audit.AuditService;
@@ -185,9 +186,9 @@ public class EmployeeImportService {
                 int idx = 1;
                 for (CredentialRow row : rows) {
                     Row r = sheet.createRow(idx++);
-                    r.createCell(0).setCellValue(row.employeeNo());
-                    r.createCell(1).setCellValue(row.displayName());
-                    r.createCell(2).setCellValue(row.temporaryPassword());
+                    r.createCell(0).setCellValue(ExcelCellHelper.sanitize(row.employeeNo()));
+                    r.createCell(1).setCellValue(ExcelCellHelper.sanitize(row.displayName()));
+                    r.createCell(2).setCellValue(ExcelCellHelper.sanitize(row.temporaryPassword()));
                 }
                 workbook.write(out);
             }

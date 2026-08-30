@@ -1,28 +1,62 @@
-<view class="container">
-  <view class="card">
-    <view class="title">欢迎，{{displayName}}</view>
-    <view class="subtitle">MP-02 学习中心 · 工号 {{employeeNo}}</view>
+<view class="page">
+  <view class="header">
+    <view class="header-title">你好，{{displayName}}</view>
+    <view class="header-sub">工号 {{employeeNo}}{{bankName ? '  ·  ' + bankName : ''}}</view>
+  </view>
 
-    <navigator url="/pages/practice/practice" class="nav-item">
-      <text>练习模式</text>
-    </navigator>
-    <navigator url="/pages/wrong-book/wrong-book" class="nav-item">
-      <text>错题本</text>
-    </navigator>
-    <navigator url="/pages/mock/mock" class="nav-item">
-      <text>模拟考试</text>
-    </navigator>
-    <navigator url="/pages/exam-tasks/exam-tasks" class="nav-item">
-      <text>考试任务</text>
-      <text wx:if="{{taskCount > 0}}" class="badge">{{taskCount}}</text>
-    </navigator>
-    <navigator url="/pages/records/records" class="nav-item">
-      <text>学习记录</text>
-    </navigator>
-    <navigator url="/pages/account/account" class="nav-item">
-      <text>账号设置</text>
-    </navigator>
+  <view class="body">
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <view wx:if="{{loading}}" class="stub">加载中…</view>
 
-    <button class="btn-logout" bindtap="onLogout">退出登录</button>
+    <view wx:if="{{activeSession}}" class="continue-card" bindtap="onContinue">
+      <view class="continue-copy">
+        <view class="continue-title">继续上次{{modeLabel}}</view>
+        <view class="continue-meta">第 {{activeSession.currentIndex || 1}} / {{activeSession.questionCount}} 题</view>
+      </view>
+      <text class="chevron">›</text>
+    </view>
+
+    <view wx:if="{{bankName}}" class="card">
+      <view class="bank-top">
+        <view class="card-title bank-title">{{bankName}}</view>
+        <view class="tag">默认题库</view>
+      </view>
+      <view class="card-meta">选择题库后开始练习，不计入正式成绩</view>
+    </view>
+    <view wx:elif="{{!loading}}" class="card">
+      <view class="card-title">暂无开放练习的题库</view>
+      <view class="card-meta">请联系管理员开放练习题库</view>
+    </view>
+
+    <view class="grid">
+      <view class="grid-item">
+        <view class="mode-card" bindtap="onStartMode" data-mode="sequential">
+          <image class="mode-icon" src="/assets/tab/mode-sequential.png" mode="aspectFit" />
+          <view class="mode-title">顺序练习</view>
+          <view class="mode-sub">按题库顺序作答</view>
+        </view>
+      </view>
+      <view class="grid-item">
+        <view class="mode-card" bindtap="onStartMode" data-mode="random">
+          <image class="mode-icon" src="/assets/tab/mode-random.png" mode="aspectFit" />
+          <view class="mode-title">随机练习</view>
+          <view class="mode-sub">打乱题目顺序</view>
+        </view>
+      </view>
+      <view class="grid-item">
+        <view class="mode-card" bindtap="onOpenConfig">
+          <image class="mode-icon" src="/assets/tab/mode-topic.png" mode="aspectFit" />
+          <view class="mode-title">专项练习</view>
+          <view class="mode-sub">按知识点筛选</view>
+        </view>
+      </view>
+      <view class="grid-item">
+        <view class="mode-card" bindtap="onWrongBook">
+          <image class="mode-icon" src="/assets/tab/mode-wrong.png" mode="aspectFit" />
+          <view class="mode-title">错题练习</view>
+          <view class="mode-sub">重做历史错题</view>
+        </view>
+      </view>
+    </view>
   </view>
 </view>

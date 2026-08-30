@@ -5,6 +5,7 @@ import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
+import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.importjob.entity.ImportTask;
 import com.examsystem.modules.importjob.repository.ImportTaskRepository;
@@ -24,8 +25,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -45,19 +48,24 @@ public class ImportService {
     private static final Set<String> VALID_DIFFICULTIES = Set.of("easy", "medium", "hard");
     private static final String[] TEMPLATE_HEADERS = {"type", "stem", "options", "standardAnswer", "difficulty"};
 
+    private static final int CONFIRM_TTL_DAYS = 30;
+
     private final ImportTaskRepository importTaskRepository;
     private final QuestionService questionService;
     private final AuditService auditService;
+    private final FileStore fileStore;
     private final DataFormatter dataFormatter = new DataFormatter();
 
     public ImportService(
             ImportTaskRepository importTaskRepository,
             QuestionService questionService,
-            AuditService auditService
+            AuditService auditService,
+            FileStore fileStore
     ) {
         this.importTaskRepository = importTaskRepository;
         this.questionService = questionService;
         this.auditService = auditService;
+        this.fileStore = fileStore;
     }
 
     public byte[] downloadTemplate(String questionBankId) {
@@ -90,13 +98,21 @@ public class ImportService {
         if (file.getSize() > MAX_FILE_SIZE) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "文件超过 10MB 限制", 422);
         }
-        ParseResult parseResult = parseExcel(file);
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "无法读取上传文件", 422);
+        }
+        ParseResult parseResult = parseExcel(new ByteArrayInputStream(bytes));
 
         ImportTask task = new ImportTask();
         task.setId(IdGenerator.newId("imp"));
         task.setQuestionBankId(questionBankId);
         task.setStatus("preview_ready");
-        task.setFileKey(file.getOriginalFilename());
+        String storedKey = "imports/" + task.getId() + ".xlsx";
+        fileStore.write(storedKey, out -> out.write(bytes));
+        task.setFileKey(storedKey);
         task.setConfirmToken(UUID.randomUUID().toString().replace("-", ""));
         task.setImportableCount(parseResult.importableCount());
         task.setErrorCount(parseResult.errorCount());
@@ -133,7 +149,12 @@ public class ImportService {
     @Transactional
     public void confirm(String id, String confirmToken, Map<String, Object> hierarchyConfirm) {
         SecurityUtils.requireAdmin();
-        ImportTask task = getTaskEntity(id);
+        ImportTask task = importTaskRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "导题任务不存在", 404));
+        expireIfStale(task);
+        if ("expired".equals(task.getStatus())) {
+            throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "任务已过期，不可确认", 409);
+        }
         if (!"preview_ready".equals(task.getStatus())) {
             throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "任务状态不允许确认", 409);
         }
@@ -218,8 +239,8 @@ public class ImportService {
         }
     }
 
-    private ParseResult parseExcel(MultipartFile file) {
-        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+    private ParseResult parseExcel(InputStream inputStream) {
+        try (Workbook workbook = new XSSFWorkbook(inputStream)) {
             Sheet sheet = workbook.getSheetAt(0);
             if (sheet.getPhysicalNumberOfRows() == 0) {
                 throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 文件为空", 422);
@@ -346,6 +367,16 @@ public class ImportService {
             return "";
         }
         return dataFormatter.formatCellValue(cell).trim();
+    }
+
+    private void expireIfStale(ImportTask task) {
+        if (task.getCreatedAt() != null
+                && "preview_ready".equals(task.getStatus())
+                && task.getCreatedAt().isBefore(Instant.now().minus(CONFIRM_TTL_DAYS, ChronoUnit.DAYS))) {
+            task.setStatus("expired");
+            task.setConfirmToken(null);
+            importTaskRepository.save(task);
+        }
     }
 
     private ImportTask getTaskEntity(String id) {

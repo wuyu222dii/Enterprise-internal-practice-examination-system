@@ -3,6 +3,8 @@ package com.examsystem.modules.auth;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.LogSanitizer;
+import com.examsystem.modules.auth.sms.SmsGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -24,9 +26,11 @@ public class RedisSmsVerificationService implements SmsVerificationService {
     private static final Duration RATE_LIMIT = Duration.ofMinutes(1);
 
     private final RedisTemplate<String, String> redisTemplate;
+    private final SmsGateway smsGateway;
 
-    public RedisSmsVerificationService(RedisTemplate<String, String> redisTemplate) {
+    public RedisSmsVerificationService(RedisTemplate<String, String> redisTemplate, SmsGateway smsGateway) {
         this.redisTemplate = redisTemplate;
+        this.smsGateway = smsGateway;
     }
 
     @Override
@@ -38,7 +42,8 @@ public class RedisSmsVerificationService implements SmsVerificationService {
         String code = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
         redisTemplate.opsForValue().set(codeKey(phone, purpose), code, CODE_TTL);
         redisTemplate.opsForValue().set(rateKey, "1", RATE_LIMIT);
-        log.info("[SMS Mock] phone={} purpose={} code={}", phone, purpose, code);
+        smsGateway.send(phone, purpose, code);
+        log.info("SMS dispatched phone={} purpose={}", LogSanitizer.maskPhone(phone), purpose);
     }
 
     @Override

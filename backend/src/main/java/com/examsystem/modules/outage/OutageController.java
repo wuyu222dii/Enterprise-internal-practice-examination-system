@@ -38,6 +38,17 @@ public class OutageController {
         return ApiResponse.ok(outageService.createEvent(affectedExamIds), metaFactory.build());
     }
 
+    @PostMapping("/detect")
+    public ApiResponse<Map<String, Object>> detect(@RequestBody(required = false) Map<String, Object> body) {
+        List<String> affectedExamIds = body != null && body.get("affectedExamIds") instanceof List<?>
+                ? ((List<?>) body.get("affectedExamIds")).stream().map(String::valueOf).toList()
+                : List.of();
+        String reason = body != null && body.get("reason") != null
+                ? String.valueOf(body.get("reason"))
+                : "injected health failure";
+        return ApiResponse.ok(outageService.detectAndPause(affectedExamIds, reason, true), metaFactory.build());
+    }
+
     @GetMapping
     public ApiResponse<PageDto<Map<String, Object>>> listEvents(
             @RequestParam(defaultValue = "1") int page,

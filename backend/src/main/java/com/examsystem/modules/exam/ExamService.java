@@ -211,6 +211,7 @@ public class ExamService {
                     issues.add(poolIssue);
                 }
             }
+            addOverlapIssues(issues, ruleLines, poolCache);
         }
 
         Map<String, Object> assignments = section(config, "assignments");
@@ -464,6 +465,10 @@ public class ExamService {
         ExamAttempt attempt = getAttempt(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
         ensureAttemptActive(attempt);
+        Exam exam = getExam(attempt.getExamId());
+        if ("paused".equals(exam.getRunStatus())) {
+            throw BusinessException.of(ErrorCode.ATT_EXAM_PAUSED, "考试已暂停", 403);
+        }
 
         ExamAnswer answer = answerRepository.findByExamAttemptIdAndPaperItemId(attemptId, itemId)
                 .orElseGet(() -> {
@@ -508,9 +513,7 @@ public class ExamService {
     }
 
     public List<String> findExpiredAttemptIds() {
-        return attemptRepository.findByAttemptStatusAndExpiresAtBefore("inProgress", Instant.now()).stream()
-                .map(ExamAttempt::getId)
-                .toList();
+        return attemptRepository.findExpiredIdsExcludingPausedExams("inProgress", Instant.now());
     }
 
     /**
@@ -522,6 +525,10 @@ public class ExamService {
     public void autoSubmitAttempt(String attemptId) {
         ExamAttempt attempt = getAttempt(attemptId);
         if (!"inProgress".equals(attempt.getAttemptStatus())) {
+            return;
+        }
+        Exam exam = getExam(attempt.getExamId());
+        if ("paused".equals(exam.getRunStatus())) {
             return;
         }
         finishAttempt(attempt, "timeout");
@@ -637,6 +644,42 @@ public class ExamService {
         return cache.computeIfAbsent(
                 bankId + '\u0000' + (type == null ? "" : type),
                 key -> questionService.findActiveVersionIdsByBank(bankId, type));
+    }
+
+    private void addOverlapIssues(
+            List<Map<String, Object>> issues,
+            List<Map<String, Object>> ruleLines,
+            Map<String, List<String>> poolCache
+    ) {
+        List<Integer> indexes = new ArrayList<>();
+        List<Set<String>> pools = new ArrayList<>();
+        for (int i = 0; i < ruleLines.size(); i++) {
+            Map<String, Object> line = ruleLines.get(i);
+            String bankId = stringValue(line.get("bankId"));
+            if (bankId == null || bankId.isBlank()) {
+                continue;
+            }
+            String type = stringValue(line.get("type"));
+            List<String> pool = candidateVersionIds(poolCache, bankId, type);
+            indexes.add(i);
+            pools.add(new LinkedHashSet<>(pool));
+        }
+        for (int a = 0; a < pools.size(); a++) {
+            for (int b = a + 1; b < pools.size(); b++) {
+                boolean overlap = pools.get(a).stream().anyMatch(pools.get(b)::contains);
+                if (overlap) {
+                    int lineA = indexes.get(a) + 1;
+                    int lineB = indexes.get(b) + 1;
+                    Map<String, Object> overlapIssue = issue(
+                            "EXM_OVERLAPPING_RULES",
+                            "规则行 " + lineA + " 与 " + lineB + " 候选题集重叠",
+                            indexes.get(a)
+                    );
+                    overlapIssue.put("otherLineIndex", indexes.get(b));
+                    issues.add(overlapIssue);
+                }
+            }
+        }
     }
 
     private void applyBasicWizardData(Exam exam, Map<String, Object> body) {

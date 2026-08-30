@@ -15,6 +15,6 @@
 
     <view wx:if="{{total > 0}}" class="summary">共 {{total}} 条错题</view>
 
-    <navigator url="/pages/home/home" open-type="navigateBack" class="back-link">返回首页</navigator>
+    <navigator url="/pages/home/home" open-type="switchTab" class="back-link">返回练习</navigator>
   </view>
 </view>

@@ -30,7 +30,7 @@
       <text>{{exam.description}}</text>
     </view>
 
-    <view class="notice">正式考试请在 Web 考试端登录作答，小程序不提供开卷入口。</view>
+    <view class="notice">正式考试请在电脑 Web 考试端登录作答。小程序只提供任务查看、考试码和地址，不提供开卷入口。</view>
 
     <navigator url="/pages/exam-tasks/exam-tasks" open-type="navigateBack" class="back-link">返回任务列表</navigator>
   </view>

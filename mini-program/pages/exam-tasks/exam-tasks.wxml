@@ -1,14 +1,18 @@
-<view class="container">
-  <view class="card">
-    <view class="title">考试任务</view>
-    <view class="subtitle">MP-09 我的考试</view>
-    <view wx:if="{{loading}}">加载中…</view>
+<view class="page">
+  <view class="header">
+    <view class="header-title">正式考试任务</view>
+    <view class="header-sub">仅查看任务与电脑端入口，不在小程序开卷</view>
+  </view>
+  <view class="body">
+    <view wx:if="{{loading}}" class="stub">加载中…</view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
-    <view wx:for="{{tasks}}" wx:key="id" class="task-item" bindtap="onTaskTap" data-id="{{item.id}}">
-      <view class="task-title">{{item.title || item.examCode || item.id}}</view>
-      <view class="task-status">{{item.lifecycle || item.status || '—'}}</view>
+    <view wx:if="{{!loading && tasks.length === 0}}" class="card">
+      <view class="card-title">暂无考试任务</view>
+      <view class="card-meta">管理员发布后将显示在这里</view>
     </view>
-    <view wx:if="{{!loading && tasks.length === 0}}" class="stub">暂无考试任务</view>
-    <navigator url="/pages/home/home" open-type="navigateBack">返回首页</navigator>
+    <view wx:for="{{tasks}}" wx:key="id" class="card task-card" bindtap="onTaskTap" data-id="{{item.id}}">
+      <view class="card-title">{{item.title || item.examCode || item.id}}</view>
+      <view class="card-meta">{{item.lifecycle || item.status || '—'}}{{item.runStatus === 'paused' ? ' · 已暂停' : ''}}</view>
+    </view>
   </view>
 </view>

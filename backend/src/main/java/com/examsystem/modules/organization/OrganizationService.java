@@ -343,7 +343,14 @@ public class OrganizationService {
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "凭据文件不存在", 404));
 
         batch.setDownloadedAt(Instant.now());
+        String fileKey = batch.getFileKey();
+        batch.setFileKey(null);
         credentialBatchRepository.save(batch);
+        try {
+            fileStore.delete(fileKey);
+        } catch (RuntimeException e) {
+            // Download already succeeded; leftover object is cleaned by RetentionService.
+        }
         return content;
     }
 

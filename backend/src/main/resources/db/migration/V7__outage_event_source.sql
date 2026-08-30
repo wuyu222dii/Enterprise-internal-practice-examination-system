@@ -1,0 +1,1 @@
+ALTER TABLE outage_events ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'manual';

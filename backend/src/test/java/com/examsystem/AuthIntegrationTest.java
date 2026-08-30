@@ -1,5 +1,7 @@
 package com.examsystem;
 
+import com.examsystem.modules.organization.entity.Employee;
+import com.examsystem.modules.organization.repository.EmployeeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,9 @@ class AuthIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private EmployeeRepository employeeRepository;
 
     @BeforeEach
     void ensureAdminPasswordChanged() throws Exception {
@@ -111,5 +116,78 @@ class AuthIntegrationTest {
                                 }
                                 """.formatted(token)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void miniProgramBindUnbindAndOpenId() throws Exception {
+        String token = TestAuthHelper.loginAdmin(mockMvc, objectMapper);
+        Employee admin = employeeRepository.findByEmployeeNo("ADMIN001").orElseThrow();
+        admin.setPhone("13900001234");
+        employeeRepository.save(admin);
+
+        mockMvc.perform(post("/auth/sms/send")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"13900001234","purpose":"bindMiniProgram"}
+                                """))
+                .andExpect(status().isOk());
+        var verifyBind = mockMvc.perform(post("/auth/sms/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"13900001234","code":"123456","purpose":"bindMiniProgram"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        String bindToken = objectMapper.readTree(verifyBind.getResponse().getContentAsString())
+                .path("data").path("verificationToken").asText();
+
+        var openIdResult = mockMvc.perform(post("/auth/mini-program/openid")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"wx-mock-code\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String openId = objectMapper.readTree(openIdResult.getResponse().getContentAsString())
+                .path("data").path("openId").asText();
+
+        mockMvc.perform(post("/auth/mini-program/bind")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"verificationToken":"%s","miniProgramOpenId":"%s"}
+                                """.formatted(bindToken, openId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/auth/session")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.session.miniProgramBound").value(true));
+
+        mockMvc.perform(post("/auth/sms/send")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"13900001234","purpose":"unbindMiniProgram"}
+                                """))
+                .andExpect(status().isOk());
+        var verifyUnbind = mockMvc.perform(post("/auth/sms/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"13900001234","code":"123456","purpose":"unbindMiniProgram"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        String unbindToken = objectMapper.readTree(verifyUnbind.getResponse().getContentAsString())
+                .path("data").path("verificationToken").asText();
+
+        mockMvc.perform(post("/auth/mini-program/unbind")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"verificationToken\":\"" + unbindToken + "\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/auth/session")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.session.miniProgramBound").value(false));
     }
 }

@@ -4,6 +4,8 @@ import com.examsystem.modules.exam.entity.ExamAttempt;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -19,6 +21,16 @@ public interface ExamAttemptRepository extends JpaRepository<ExamAttempt, String
     Page<ExamAttempt> findByExamId(String examId, Pageable pageable);
 
     List<ExamAttempt> findByAttemptStatusAndExpiresAtBefore(String status, Instant expiresAt);
+
+    @Query("""
+            SELECT a.id FROM ExamAttempt a
+            WHERE a.attemptStatus = :status AND a.expiresAt < :expiresAt
+              AND NOT EXISTS (
+                  SELECT 1 FROM Exam e WHERE e.id = a.examId AND e.runStatus = 'paused'
+              )
+            """)
+    List<String> findExpiredIdsExcludingPausedExams(
+            @Param("status") String status, @Param("expiresAt") Instant expiresAt);
 
     Page<ExamAttempt> findByExamIdAndAttemptStatus(String examId, String attemptStatus, Pageable pageable);
 

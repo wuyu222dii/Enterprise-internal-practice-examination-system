@@ -16,6 +16,8 @@ public interface FileStore {
 
     Optional<Resource> read(String fileKey);
 
+    void delete(String fileKey);
+
     @FunctionalInterface
     interface ContentWriter {
         void writeTo(OutputStream out) throws IOException;

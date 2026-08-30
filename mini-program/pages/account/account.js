@@ -2,6 +2,9 @@ const app = getApp()
 
 Page({
   data: {
+    view: 'menu',
+    panelTitle: '',
+    avatarInitial: '员',
     displayName: '',
     employeeNo: '',
     miniProgramBound: false,
@@ -13,6 +16,10 @@ Page({
     bindCode: '',
     bindToken: '',
     bindStep: 'idle',
+    unbindPhone: '',
+    unbindCode: '',
+    unbindToken: '',
+    unbindStep: 'idle',
     loading: false,
     bindLoading: false,
     error: '',
@@ -20,7 +27,15 @@ Page({
   },
 
   onLoad(options) {
-    this.setData({ forceChange: options.forceChange === '1' })
+    const forceChange = options.forceChange === '1'
+    this.setData({
+      forceChange,
+      view: forceChange ? 'password' : 'menu',
+      panelTitle: forceChange ? '修改密码' : '',
+    })
+    if (forceChange) {
+      wx.hideTabBar({ animation: false })
+    }
   },
 
   onShow() {
@@ -39,14 +54,44 @@ Page({
         if (res.statusCode === 200 && res.data?.data?.session) {
           const session = res.data.data.session
           app.setAuth(app.globalData.token, session)
+          const displayName = session.displayName || session.employeeNo || ''
           this.setData({
-            displayName: session.displayName || session.employeeNo || '',
+            displayName,
             employeeNo: session.employeeNo || '',
             miniProgramBound: !!session.miniProgramBound,
+            avatarInitial: displayName ? displayName.slice(0, 1) : '员',
           })
         }
       },
     })
+  },
+
+  onOpenView(e) {
+    const titles = {
+      password: '修改密码',
+      bind: '绑定微信',
+      unbind: '解绑小程序',
+      about: '关于',
+    }
+    const view = e.currentTarget.dataset.view
+    this.setData({ view, panelTitle: titles[view] || '', error: '', success: '' })
+  },
+
+  onBackMenu() {
+    this.setData({ view: 'menu', error: '', success: '' })
+  },
+
+  onOpenRecords() {
+    wx.navigateTo({ url: '/pages/records/records' })
+  },
+
+  onOpenWrongBook() {
+    wx.navigateTo({ url: '/pages/wrong-book/wrong-book' })
+  },
+
+  onLogout() {
+    app.clearAuth()
+    wx.reLaunch({ url: '/pages/login/login' })
   },
 
   onCurrentPasswordInput(e) {
@@ -104,7 +149,10 @@ Page({
           })
           this.refreshSession()
           if (wasForceChange) {
-            wx.redirectTo({ url: '/pages/home/home' })
+            wx.showTabBar({ animation: false })
+            wx.reLaunch({ url: '/pages/home/home' })
+          } else {
+            this.setData({ view: 'menu' })
           }
         } else {
           this.setData({ error: res.data?.error?.message || '修改失败' })
@@ -186,27 +234,167 @@ Page({
       return
     }
     this.setData({ bindLoading: true, error: '' })
-    const openId = `mp-dev-${this.data.employeeNo}`
+    this.resolveOpenId((openId) => {
+      wx.request({
+        url: `${app.globalData.apiBase}/auth/mini-program/bind`,
+        method: 'POST',
+        header: {
+          ...app.authHeader(),
+          'Content-Type': 'application/json',
+        },
+        data: { verificationToken: bindToken, miniProgramOpenId: openId },
+        success: (res) => {
+          if (res.statusCode === 200) {
+            this.setData({
+              success: '微信绑定成功',
+              bindStep: 'idle',
+              bindPhone: '',
+              bindCode: '',
+              bindToken: '',
+              view: 'menu',
+            })
+            this.refreshSession()
+          } else {
+            this.setData({ error: res.data?.error?.message || '绑定失败' })
+          }
+        },
+        fail: () => {
+          this.setData({ error: '网络错误' })
+        },
+        complete: () => {
+          this.setData({ bindLoading: false })
+        },
+      })
+    })
+  },
+
+  resolveOpenId(callback) {
+    const fallback = `mp-dev-${this.data.employeeNo || 'user'}`
+    const finish = (code) => {
+      wx.request({
+        url: `${app.globalData.apiBase}/auth/mini-program/openid`,
+        method: 'POST',
+        header: {
+          ...app.authHeader(),
+          'Content-Type': 'application/json',
+        },
+        data: { code },
+        success: (res) => {
+          if (res.statusCode === 200 && res.data?.data?.openId) {
+            callback(res.data.data.openId)
+          } else {
+            callback(fallback)
+          }
+        },
+        fail: () => callback(fallback),
+      })
+    }
+    if (typeof wx.login === 'function') {
+      wx.login({
+        success: (r) => finish(r.code || fallback),
+        fail: () => finish(fallback),
+      })
+    } else {
+      finish(fallback)
+    }
+  },
+
+  onUnbindPhoneInput(e) {
+    this.setData({ unbindPhone: e.detail.value })
+  },
+
+  onUnbindCodeInput(e) {
+    this.setData({ unbindCode: e.detail.value })
+  },
+
+  onSendUnbindSms() {
+    const { unbindPhone } = this.data
+    if (!unbindPhone) {
+      this.setData({ error: '请输入手机号' })
+      return
+    }
+    this.setData({ bindLoading: true, error: '' })
     wx.request({
-      url: `${app.globalData.apiBase}/auth/mini-program/bind`,
+      url: `${app.globalData.apiBase}/auth/sms/send`,
+      method: 'POST',
+      header: { 'Content-Type': 'application/json' },
+      data: { phone: unbindPhone, purpose: 'unbindMiniProgram' },
+      success: (res) => {
+        if (res.statusCode === 200) {
+          this.setData({ unbindStep: 'verify', success: '验证码已发送' })
+        } else {
+          this.setData({ error: res.data?.error?.message || '发送失败' })
+        }
+      },
+      fail: () => {
+        this.setData({ error: '网络错误' })
+      },
+      complete: () => {
+        this.setData({ bindLoading: false })
+      },
+    })
+  },
+
+  onVerifyUnbindSms() {
+    const { unbindPhone, unbindCode } = this.data
+    if (!unbindCode) {
+      this.setData({ error: '请输入验证码' })
+      return
+    }
+    this.setData({ bindLoading: true, error: '' })
+    wx.request({
+      url: `${app.globalData.apiBase}/auth/sms/verify`,
+      method: 'POST',
+      header: { 'Content-Type': 'application/json' },
+      data: { phone: unbindPhone, code: unbindCode, purpose: 'unbindMiniProgram' },
+      success: (res) => {
+        if (res.statusCode === 200 && res.data?.data?.verificationToken) {
+          this.setData({
+            unbindToken: res.data.data.verificationToken,
+            unbindStep: 'ready',
+            success: '验证成功，请点击确认解绑',
+          })
+        } else {
+          this.setData({ error: res.data?.error?.message || '验证失败' })
+        }
+      },
+      fail: () => {
+        this.setData({ error: '网络错误' })
+      },
+      complete: () => {
+        this.setData({ bindLoading: false })
+      },
+    })
+  },
+
+  onUnbindMiniProgram() {
+    const { unbindToken } = this.data
+    if (!unbindToken) {
+      this.setData({ error: '请先完成短信验证' })
+      return
+    }
+    this.setData({ bindLoading: true, error: '' })
+    wx.request({
+      url: `${app.globalData.apiBase}/auth/mini-program/unbind`,
       method: 'POST',
       header: {
         ...app.authHeader(),
         'Content-Type': 'application/json',
       },
-      data: { verificationToken: bindToken, miniProgramOpenId: openId },
+      data: { verificationToken: unbindToken },
       success: (res) => {
         if (res.statusCode === 200) {
           this.setData({
-            success: '微信绑定成功',
-            bindStep: 'idle',
-            bindPhone: '',
-            bindCode: '',
-            bindToken: '',
+            success: '已解除微信绑定',
+            unbindStep: 'idle',
+            unbindPhone: '',
+            unbindCode: '',
+            unbindToken: '',
+            view: 'menu',
           })
           this.refreshSession()
         } else {
-          this.setData({ error: res.data?.error?.message || '绑定失败' })
+          this.setData({ error: res.data?.error?.message || '解绑失败' })
         }
       },
       fail: () => {

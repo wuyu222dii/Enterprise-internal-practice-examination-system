@@ -23,7 +23,16 @@ exam:
   scheduler:
     auto-submit-ms: 3600000
   storage:
+    backend: local
     local-path: ./target/test-storage
+  sms:
+    provider: mock
+  retention:
+    enabled: true
+  outage:
+    probe-enabled: false
+  wechat:
+    mock-openid: true
 
 logging:
   level:

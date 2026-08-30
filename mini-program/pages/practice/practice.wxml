@@ -1,33 +1,38 @@
-<view class="container">
-  <view class="card">
-    <view class="title">练习模式</view>
-    <view class="subtitle">MP-03 选择题库开始练习</view>
-
-    <view wx:if="{{loading}}">加载中…</view>
+<view class="page">
+  <view class="header">
+    <view class="header-title">专项练习</view>
+    <view class="header-sub">选择题库与题量后开始，不计入正式成绩</view>
+  </view>
+  <view class="body">
+    <view wx:if="{{loading}}" class="stub">加载中…</view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
 
-    <view wx:if="{{activeSession}}" class="active-box">
-      <view class="active-title">进行中的练习</view>
-      <view class="active-meta">{{activeSession.questionCount}} 题 · {{activeSession.mode}}</view>
-      <button class="btn-primary" bindtap="onContinue">继续练习</button>
+    <view wx:if="{{activeSession}}" class="continue-card" bindtap="onContinue">
+      <view>
+        <view class="continue-title">继续进行中的练习</view>
+        <view class="continue-meta">{{activeSession.questionCount}} 题 · {{activeSession.mode}}</view>
+      </view>
+      <text class="chevron">›</text>
     </view>
 
-    <view wx:if="{{!loading && banks.length === 0}}" class="stub">暂无开放练习的题库</view>
+    <view wx:if="{{!loading && banks.length === 0}}" class="card">
+      <view class="card-title">暂无开放练习的题库</view>
+    </view>
 
-    <view wx:if="{{banks.length > 0}}">
-      <view class="label">选择题库</view>
-      <picker mode="selector" range="{{banks}}" range-key="name" bindchange="onBankChange">
-        <view class="picker">{{selectedBankName || '请选择题库'}}</view>
-      </picker>
-
-      <view class="label">题量</view>
-      <picker mode="selector" range="{{['10题','20题','50题']}}" bindchange="onCountChange">
-        <view class="picker">{{questionCount}} 题</view>
-      </picker>
-
+    <view wx:if="{{banks.length > 0}}" class="card">
+      <view class="field">
+        <text class="field-label">选择题库</text>
+        <picker mode="selector" range="{{banks}}" range-key="name" bindchange="onBankChange">
+          <view class="field-input picker-value">{{selectedBankName || '请选择题库'}}</view>
+        </picker>
+      </view>
+      <view class="field">
+        <text class="field-label">题量</text>
+        <picker mode="selector" range="{{['10题','20题','50题']}}" bindchange="onCountChange">
+          <view class="field-input picker-value">{{questionCount}} 题</view>
+        </picker>
+      </view>
       <button class="btn-primary" loading="{{starting}}" bindtap="onStart">开始练习</button>
     </view>
-
-    <navigator url="/pages/home/home" open-type="navigateBack" class="back-link">返回首页</navigator>
   </view>
 </view>

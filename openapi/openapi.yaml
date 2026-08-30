@@ -192,6 +192,58 @@ paths:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
 
+  /auth/mini-program/unbind:
+    post:
+      tags: [Auth]
+      operationId: authUnbindMiniProgram
+      summary: 小程序身份解绑（需短信验证令牌）
+      x-fr-ids: [FR-AUTH-03]
+      x-page-ids: [MP-01, MP-12]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationToken]
+              properties:
+                verificationToken:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /auth/mini-program/openid:
+    post:
+      tags: [Auth]
+      operationId: authResolveMiniProgramOpenId
+      summary: 用 wx.login code 换 openId（开发环境 mock）
+      x-fr-ids: [FR-AUTH-03]
+      x-page-ids: [MP-01]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: openId
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      openId:
+                        type: string
+
   /auth/password-reset:
     post:
       tags: [Auth]
@@ -2067,7 +2119,7 @@ components:
           type: string
         purpose:
           type: string
-          enum: [bindMiniProgram, resetPassword, unbindPhone]
+          enum: [bindMiniProgram, resetPassword, unbindPhone, unbindMiniProgram]
 
     SmsVerifyRequest:
       type: object

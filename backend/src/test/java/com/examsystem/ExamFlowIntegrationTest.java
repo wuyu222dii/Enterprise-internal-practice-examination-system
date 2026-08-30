@@ -104,6 +104,31 @@ class ExamFlowIntegrationTest {
                 .andExpect(jsonPath("$.data.attemptId").value(attemptId));
     }
 
+    @Test
+    void saveAnswerWhilePausedReturns403() throws Exception {
+        String adminToken = TestAuthHelper.loginAdmin(mockMvc, objectMapper);
+        String examToken = TestAuthHelper.loginAdminForExamClient(mockMvc, objectMapper);
+        String examId = TestExamHelper.createAndPublishExam(mockMvc, objectMapper, adminToken, "暂停保存考试");
+        String attemptId = TestExamHelper.startAttempt(mockMvc, objectMapper, examToken, examId);
+        String itemId = objectMapper.readTree(mockMvc.perform(get("/attempts/" + attemptId + "/paper")
+                        .header("Authorization", "Bearer " + examToken))
+                .andReturn().getResponse().getContentAsString())
+                .path("data").path("items").get(0).path("itemId").asText();
+
+        mockMvc.perform(post("/admin/exams/" + examId + "/pause")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"flow pause\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/attempts/" + attemptId + "/answers/" + itemId)
+                        .header("Authorization", "Bearer " + examToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"answer\":[\"B\"],\"answerVersion\":1}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("ATT_EXAM_PAUSED"));
+    }
+
     private String loginAsExamUser() throws Exception {
         return TestAuthHelper.loginAdminForExamClient(mockMvc, objectMapper);
     }

@@ -1,84 +1,44 @@
-.hint {
-  font-size: 24rpx;
-  color: #6b7c93;
-  padding: 16rpx;
-  background: #eef3f9;
-  border-radius: 8rpx;
-  margin-bottom: 24rpx;
-}
-
-.profile {
-  margin-bottom: 32rpx;
-}
-
-.profile-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 16rpx 0;
-  border-bottom: 1rpx solid #eef0f3;
-}
-
-.label {
-  color: #6b7c93;
-}
-
-.status-ok {
-  color: #1e7e34;
-}
-
-.status-pending {
-  color: #c0392b;
-}
-
-.section-title {
-  font-weight: 600;
-  margin: 24rpx 0 16rpx;
-}
-
-.bind-section {
-  margin-top: 32rpx;
-  padding-top: 24rpx;
-  border-top: 1rpx solid #eef0f3;
-}
-
-input {
-  display: block;
-  width: 100%;
-  padding: 20rpx;
-  margin-bottom: 20rpx;
-  border: 1rpx solid #dce3eb;
-  border-radius: 8rpx;
-  box-sizing: border-box;
-}
-
-.btn-secondary {
+.profile-hero {
   background: #ffffff;
+  padding: 40rpx 48rpx;
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 56rpx;
+  background: #1b4b8a;
+  color: #ffffff;
+  font-size: 40rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 28rpx;
+  flex-shrink: 0;
+}
+
+.profile-meta {
+  flex: 1;
+}
+
+.employee-no {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  font-weight: 500;
   color: #1b4b8a;
-  border: 1rpx solid #1b4b8a;
-  border-radius: 8rpx;
-  font-size: 28rpx;
-  margin-bottom: 16rpx;
 }
 
-.error {
-  color: #c0392b;
-  font-size: 24rpx;
-  margin-top: 16rpx;
+.btn-ghost {
+  margin-top: 32rpx;
 }
 
-.success {
-  color: #1e7e34;
-  font-size: 24rpx;
-  margin-top: 16rpx;
-}
-
-.back-link {
-  display: block;
+.field {
   margin-top: 24rpx;
-  color: #1b4b8a;
-  text-align: center;
 }
 
-button {
-  margin-top: 16rpx;
+.help-text {
+  margin: 16rpx 0;
 }

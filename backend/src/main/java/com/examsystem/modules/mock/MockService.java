@@ -212,6 +212,9 @@ public class MockService {
     public void abandon(String attemptId) {
         MockAttempt attempt = getAttemptEntity(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
+        if (!"in_progress".equals(attempt.getStatus())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "模拟考试已结束", 422);
+        }
         attempt.setStatus("terminated");
         attempt.setTerminateReason("abandoned");
         attempt.setTerminatedAt(Instant.now());

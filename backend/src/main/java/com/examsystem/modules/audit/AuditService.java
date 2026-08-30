@@ -2,6 +2,7 @@ package com.examsystem.modules.audit;
 
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
+import com.examsystem.common.LogSanitizer;
 import com.examsystem.common.PageDto;
 import com.examsystem.common.RequestContext;
 import com.examsystem.modules.audit.entity.AuditLog;
@@ -34,10 +35,10 @@ public class AuditService {
         log.setTargetType(targetType);
         log.setTargetId(targetId);
         if (before != null) {
-            log.setBeforeJson(JsonHelper.toJson(before));
+            log.setBeforeJson(JsonHelper.toJson(LogSanitizer.redact(before)));
         }
         if (after != null) {
-            log.setAfterJson(JsonHelper.toJson(after));
+            log.setAfterJson(JsonHelper.toJson(LogSanitizer.redact(after)));
         }
         log.setReason(reason);
         log.setRequestId(RequestContext.getRequestId());

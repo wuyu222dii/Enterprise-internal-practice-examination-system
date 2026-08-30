@@ -23,6 +23,7 @@ interface OutageEvent {
   status: string
   affectedExamIds: string[]
   latestProposalVersion: number
+  source?: string
   createdAt: string
 }
 
@@ -41,6 +42,7 @@ export default function MonitorPage() {
   const [success, setSuccess] = useState('')
   const [pausing, setPausing] = useState(false)
   const [confirmingId, setConfirmingId] = useState('')
+  const [rejectingId, setRejectingId] = useState('')
 
   const loadExams = useCallback(async () => {
     setLoading(true)
@@ -126,6 +128,29 @@ export default function MonitorPage() {
     }
   }
 
+  async function handleRejectProposal(event: OutageEvent) {
+    const reason = window.prompt('请输入驳回原因') ?? ''
+    if (!reason.trim()) return
+    setRejectingId(event.id)
+    setError('')
+    setSuccess('')
+    try {
+      await apiFetch(
+        `/admin/outage-events/${event.id}/proposals/${event.latestProposalVersion}/reject`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ rejectReason: reason }),
+        },
+      )
+      setSuccess('故障提案已驳回')
+      await loadMonitor(examId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '驳回失败')
+    } finally {
+      setRejectingId('')
+    }
+  }
+
   const selectedExam = exams.find((exam) => exam.id === examId)
 
   return (
@@ -188,7 +213,8 @@ export default function MonitorPage() {
                 <th>事件 ID</th>
                 <th>状态</th>
                 <th>受影响考试</th>
-                <th>提案版本</th>
+                <th>来源</th>
+                <th>提案</th>
                 <th>创建时间</th>
                 <th>操作</th>
               </tr>
@@ -199,18 +225,32 @@ export default function MonitorPage() {
                   <td>{event.id}</td>
                   <td>{event.status}</td>
                   <td>{event.affectedExamIds.join(', ') || '—'}</td>
-                  <td>{event.latestProposalVersion}</td>
+                  <td>{event.source === 'auto' ? '自动检测' : '人工'}</td>
+                  <td>
+                    v{event.latestProposalVersion}
+                    {event.source === 'auto' ? '（只读）' : ''}
+                  </td>
                   <td>{new Date(event.createdAt).toLocaleString()}</td>
                   <td>
                     {event.status === 'detected' && (
-                      <button
-                        type="button"
-                        className="btn-text"
-                        disabled={confirmingId === event.id}
-                        onClick={() => handleConfirmProposal(event)}
-                      >
-                        {confirmingId === event.id ? '确认中…' : '确认提案'}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          className="btn-text"
+                          disabled={confirmingId === event.id}
+                          onClick={() => handleConfirmProposal(event)}
+                        >
+                          {confirmingId === event.id ? '确认中…' : '确认提案'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-text"
+                          disabled={rejectingId === event.id}
+                          onClick={() => handleRejectProposal(event)}
+                        >
+                          {rejectingId === event.id ? '驳回中…' : '驳回'}
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>

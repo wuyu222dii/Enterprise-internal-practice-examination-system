@@ -15,6 +15,7 @@ public class OutageEvent {
     @Column(name = "open_interval_end") private Instant openIntervalEnd;
     @JsonColumn @Column(name = "affected_exam_ids", nullable = false) private String affectedExamIds = "[]";
     @Column(name = "latest_proposal_version", nullable = false) private int latestProposalVersion;
+    @Column(nullable = false, length = 20) private String source = "manual";
     @CreationTimestamp @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @UpdateTimestamp @Column(name = "updated_at", nullable = false) private Instant updatedAt;
 
@@ -30,6 +31,8 @@ public class OutageEvent {
     public void setAffectedExamIds(String affectedExamIds) { this.affectedExamIds = affectedExamIds; }
     public int getLatestProposalVersion() { return latestProposalVersion; }
     public void setLatestProposalVersion(int latestProposalVersion) { this.latestProposalVersion = latestProposalVersion; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

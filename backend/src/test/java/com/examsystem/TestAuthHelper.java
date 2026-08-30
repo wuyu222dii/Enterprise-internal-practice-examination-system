@@ -52,6 +52,31 @@ final class TestAuthHelper {
                 .path("data").path("token").asText();
     }
 
+    static String loginExam001(MockMvc mockMvc, ObjectMapper objectMapper) throws Exception {
+        MvcResult loginResult = tryLoginExam001(mockMvc, "Admin@123");
+        if (loginResult.getResponse().getStatus() != 200) {
+            loginResult = tryLoginExam001(mockMvc, "Admin@12345");
+        }
+        if (loginResult.getResponse().getStatus() != 200) {
+            throw new IllegalStateException("EXAM001 login failed: " + loginResult.getResponse().getContentAsString());
+        }
+        return objectMapper.readTree(loginResult.getResponse().getContentAsString())
+                .path("data").path("token").asText();
+    }
+
+    private static MvcResult tryLoginExam001(MockMvc mockMvc, String password) throws Exception {
+        return mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "EXAM001",
+                                  "password": "%s",
+                                  "clientType": "examWeb"
+                                }
+                                """.formatted(password)))
+                .andReturn();
+    }
+
     private static MvcResult tryLogin(MockMvc mockMvc, String password, String clientType) throws Exception {
         return mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

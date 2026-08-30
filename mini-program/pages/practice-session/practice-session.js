@@ -7,6 +7,7 @@ Page({
     currentIndex: 0,
     currentItem: null,
     selectedKeys: [],
+    displayOptions: [],
     feedback: null,
     loading: false,
     submitting: false,
@@ -37,11 +38,14 @@ Page({
         if (res.statusCode === 200 && res.data?.data) {
           const session = res.data.data
           const index = session.currentIndex || 0
+          const currentItem = session.items?.[index] || null
           this.setData({
             session,
             currentIndex: index,
-            currentItem: session.items?.[index] || null,
+            currentItem,
             finished: session.status === 'finished',
+            selectedKeys: [],
+            displayOptions: this.buildOptions(currentItem, [], null),
           })
         } else {
           this.setData({ error: res.data?.error?.message || '加载失败' })
@@ -60,20 +64,48 @@ Page({
     return type === 'multipleChoice'
   },
 
+  optionKey(opt) {
+    return opt.key || opt.label || opt.id
+  },
+
+  buildOptions(item, selectedKeys, feedback) {
+    const selected = new Set(selectedKeys || [])
+    const standard = new Set(feedback?.standardAnswer || [])
+    return (item?.options || []).map((opt) => {
+      const key = this.optionKey(opt)
+      const isSelected = selected.has(key)
+      let state = ''
+      if (feedback) {
+        if (standard.has(key)) state = 'correct'
+        else if (isSelected) state = 'wrong'
+      } else if (isSelected) {
+        state = 'selected'
+      }
+      return { ...opt, key, selected: isSelected, state }
+    })
+  },
+
+  applySelection(selectedKeys, feedback) {
+    this.setData({
+      selectedKeys,
+      feedback: feedback || null,
+      displayOptions: this.buildOptions(this.data.currentItem, selectedKeys, feedback),
+    })
+  },
+
   onSelectOption(e) {
+    if (this.data.feedback) return
     const key = e.currentTarget.dataset.key
+    if (!key) return
     const type = this.data.currentItem?.type
+    let next = [key]
     if (this.isMultiple(type)) {
       const set = new Set(this.data.selectedKeys)
-      if (set.has(key)) {
-        set.delete(key)
-      } else {
-        set.add(key)
-      }
-      this.setData({ selectedKeys: [...set] })
-    } else {
-      this.setData({ selectedKeys: [key] })
+      if (set.has(key)) set.delete(key)
+      else set.add(key)
+      next = [...set]
     }
+    this.applySelection(next, null)
   },
 
   onSubmitAnswer() {
@@ -101,7 +133,7 @@ Page({
           if (Array.isArray(fb.standardAnswer)) {
             fb.standardAnswerText = fb.standardAnswer.join(', ')
           }
-          this.setData({ feedback: fb })
+          this.applySelection(this.data.selectedKeys, fb)
         } else {
           wx.showToast({ title: res.data?.error?.message || '提交失败', icon: 'none' })
         }
@@ -128,6 +160,7 @@ Page({
       currentItem: items[nextIndex],
       selectedKeys: [],
       feedback: null,
+      displayOptions: this.buildOptions(items[nextIndex], [], null),
     })
   },
 
@@ -144,6 +177,6 @@ Page({
   },
 
   onBackHome() {
-    wx.navigateBack({ delta: 2 })
+    wx.switchTab({ url: '/pages/home/home' })
   },
 })

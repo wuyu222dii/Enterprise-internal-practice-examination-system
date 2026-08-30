@@ -73,6 +73,12 @@ public class PracticeController {
         return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
     }
 
+    @PostMapping("/sessions/{id}/abandon")
+    public ApiResponse<Object> abandonSession(@PathVariable String id) {
+        practiceService.abandonSession(id);
+        return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
+    }
+
     @GetMapping("/wrong-book")
     public ApiResponse<PageDto<Map<String, Object>>> listWrongBook(
             @RequestParam(defaultValue = "1") int page,

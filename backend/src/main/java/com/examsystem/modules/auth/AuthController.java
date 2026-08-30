@@ -7,10 +7,12 @@ import com.examsystem.modules.auth.dto.ChangePasswordRequest;
 import com.examsystem.modules.auth.dto.LoginRequest;
 import com.examsystem.modules.auth.dto.LoginResponse;
 import com.examsystem.modules.auth.dto.PasswordResetRequest;
+import com.examsystem.modules.auth.dto.ResolveOpenIdRequest;
 import com.examsystem.modules.auth.dto.SessionResponse;
 import com.examsystem.modules.auth.dto.SmsSendRequest;
 import com.examsystem.modules.auth.dto.SmsVerifyRequest;
 import com.examsystem.modules.auth.dto.SmsVerifyResponse;
+import com.examsystem.modules.auth.dto.UnbindMiniProgramRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -78,5 +80,16 @@ public class AuthController {
     public ApiResponse<Object> bindMiniProgram(@Valid @RequestBody BindMiniProgramRequest request) {
         authService.bindMiniProgram(request);
         return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
+    }
+
+    @PostMapping("/mini-program/unbind")
+    public ApiResponse<Object> unbindMiniProgram(@Valid @RequestBody UnbindMiniProgramRequest request) {
+        authService.unbindMiniProgram(request);
+        return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
+    }
+
+    @PostMapping("/mini-program/openid")
+    public ApiResponse<Object> resolveOpenId(@Valid @RequestBody ResolveOpenIdRequest request) {
+        return ApiResponse.ok(authService.resolveOpenId(request), metaFactory.build());
     }
 }

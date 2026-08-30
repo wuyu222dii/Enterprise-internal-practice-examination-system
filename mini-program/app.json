@@ -2,21 +2,53 @@
   "pages": [
     "pages/login/login",
     "pages/home/home",
+    "pages/mock/mock",
+    "pages/exam-tasks/exam-tasks",
+    "pages/account/account",
     "pages/practice/practice",
     "pages/practice-session/practice-session",
     "pages/wrong-book/wrong-book",
-    "pages/mock/mock",
     "pages/mock-exam/mock-exam",
-    "pages/exam-tasks/exam-tasks",
     "pages/exam-detail/exam-detail",
-    "pages/records/records",
-    "pages/account/account"
+    "pages/records/records"
   ],
   "window": {
-    "navigationBarBackgroundColor": "#1B4B8A",
-    "navigationBarTitleText": "考试系统",
-    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "navigationBarTitleText": "企业内部练习与考试",
+    "navigationBarTextStyle": "black",
     "backgroundColor": "#F5F7FA"
+  },
+  "tabBar": {
+    "color": "#9CA3AF",
+    "selectedColor": "#1B4B8A",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "练习",
+        "iconPath": "assets/tab/practice.png",
+        "selectedIconPath": "assets/tab/practice-active.png"
+      },
+      {
+        "pagePath": "pages/mock/mock",
+        "text": "模拟",
+        "iconPath": "assets/tab/mock.png",
+        "selectedIconPath": "assets/tab/mock-active.png"
+      },
+      {
+        "pagePath": "pages/exam-tasks/exam-tasks",
+        "text": "考试",
+        "iconPath": "assets/tab/exam.png",
+        "selectedIconPath": "assets/tab/exam-active.png"
+      },
+      {
+        "pagePath": "pages/account/account",
+        "text": "我的",
+        "iconPath": "assets/tab/mine.png",
+        "selectedIconPath": "assets/tab/mine-active.png"
+      }
+    ]
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

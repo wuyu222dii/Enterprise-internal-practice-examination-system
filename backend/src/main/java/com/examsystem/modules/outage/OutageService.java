@@ -15,6 +15,7 @@ import com.examsystem.modules.outage.entity.OutageProposal;
 import com.examsystem.modules.outage.repository.OutageEventRepository;
 import com.examsystem.modules.outage.repository.OutageProposalRepository;
 import com.examsystem.security.SecurityUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -37,19 +38,22 @@ public class OutageService {
     private final ExamRepository examRepository;
     private final ExamAttemptRepository attemptRepository;
     private final AuditService auditService;
+    private final int compensationMinutes;
 
     public OutageService(
             OutageEventRepository eventRepository,
             OutageProposalRepository proposalRepository,
             ExamRepository examRepository,
             ExamAttemptRepository attemptRepository,
-            AuditService auditService
+            AuditService auditService,
+            @Value("${exam.outage.compensation-minutes:15}") int compensationMinutes
     ) {
         this.eventRepository = eventRepository;
         this.proposalRepository = proposalRepository;
         this.examRepository = examRepository;
         this.attemptRepository = attemptRepository;
         this.auditService = auditService;
+        this.compensationMinutes = compensationMinutes;
     }
 
     public PageDto<Map<String, Object>> listEvents(int page, int pageSize) {
@@ -76,6 +80,9 @@ public class OutageService {
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "提案不存在", 404));
         if (version != event.getLatestProposalVersion()) {
             throw BusinessException.of(ErrorCode.OPS_PROPOSAL_STALE, "提案版本已过期", 409);
+        }
+        if ("resolved".equals(event.getStatus()) || "confirmed".equals(proposal.getStatus())) {
+            return;
         }
         proposal.setStatus("confirmed");
         proposal.setDecidedBy(SecurityUtils.requirePrincipal().getEmployeeId());
@@ -115,13 +122,18 @@ public class OutageService {
         event.setStatus("detected");
         event.setAffectedExamIds(JsonHelper.toJson(affectedExamIds));
         event.setLatestProposalVersion(1);
+        event.setSource("manual");
         eventRepository.save(event);
 
         OutageProposal proposal = new OutageProposal();
         proposal.setId(IdGenerator.newId("oup"));
         proposal.setOutageEventId(event.getId());
         proposal.setVersion(1);
-        proposal.setProposalJson(JsonHelper.toJson(Map.of("extendMinutes", 15)));
+        proposal.setProposalJson(JsonHelper.toJson(Map.of(
+                "extendMinutes", 15,
+                "editable", true,
+                "source", "manual"
+        )));
         proposalRepository.save(proposal);
         auditService.log("outage.create", "OutageEvent", event.getId(), null,
                 Map.of("affectedExamIds", affectedExamIds), null);
@@ -133,10 +145,68 @@ public class OutageService {
         requireOutageAuthorized();
         Exam exam = examRepository.findById(examId)
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "考试不存在", 404));
+        pauseExamInternal(exam, reason);
+    }
+
+    /**
+     * Health-probe / demo injection: pause the given exams (or every currently open exam),
+     * write an immutable compensation proposal, and skip auto-submit until confirmed.
+     */
+    @Transactional
+    public Map<String, Object> detectAndPause(List<String> requestedExamIds, String reason, boolean requireAuth) {
+        if (requireAuth) {
+            requireOutageAuthorized();
+        }
+        List<Exam> targets;
+        if (requestedExamIds == null || requestedExamIds.isEmpty()) {
+            targets = examRepository.findByLifecycleAndRunStatus("openForAttempt", "normal");
+        } else {
+            targets = examRepository.findAllById(requestedExamIds);
+        }
+        List<Exam> toPause = targets.stream()
+                .filter(exam -> !"paused".equals(exam.getRunStatus()))
+                .toList();
+        if (toPause.isEmpty()) {
+            return Map.of("status", "noop", "reason", "no open exams to pause");
+        }
+        List<String> examIds = toPause.stream().map(Exam::getId).toList();
+        for (Exam exam : toPause) {
+            pauseExamInternal(exam, reason);
+        }
+
+        OutageEvent event = new OutageEvent();
+        event.setId(IdGenerator.newId("out"));
+        event.setStatus("detected");
+        event.setAffectedExamIds(JsonHelper.toJson(examIds));
+        event.setLatestProposalVersion(1);
+        event.setSource("auto");
+        event.setCandidateStartedAt(Instant.now());
+        eventRepository.save(event);
+
+        OutageProposal proposal = new OutageProposal();
+        proposal.setId(IdGenerator.newId("oup"));
+        proposal.setOutageEventId(event.getId());
+        proposal.setVersion(1);
+        proposal.setProposalJson(JsonHelper.toJson(Map.of(
+                "extendMinutes", compensationMinutes,
+                "editable", false,
+                "source", "auto"
+        )));
+        proposalRepository.save(proposal);
+        auditService.log("outage.detect", "OutageEvent", event.getId(), null,
+                Map.of("affectedExamIds", examIds, "source", "auto"), reason);
+        return eventToDto(event);
+    }
+
+    private void pauseExamInternal(Exam exam, String reason) {
+        String previous = exam.getRunStatus();
+        if ("paused".equals(previous)) {
+            return;
+        }
         exam.setRunStatus("paused");
         examRepository.save(exam);
-        auditService.log("exam.pause", "Exam", examId,
-                Map.of("runStatus", "normal"), Map.of("runStatus", "paused"), reason);
+        auditService.log("exam.pause", "Exam", exam.getId(),
+                Map.of("runStatus", previous), Map.of("runStatus", "paused"), reason);
     }
 
     private void applyProposalCompensation(OutageEvent event, OutageProposal proposal) {
@@ -184,6 +254,14 @@ public class OutageService {
         }
     }
 
+    private boolean boolEditable(OutageProposal proposal) {
+        Object parsed = JsonHelper.parse(proposal.getProposalJson());
+        if (parsed instanceof Map<?, ?> map && map.get("editable") instanceof Boolean editable) {
+            return editable;
+        }
+        return true;
+    }
+
     private OutageEvent getEventEntity(String id) {
         return eventRepository.findById(id)
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "故障事件不存在", 404));
@@ -195,6 +273,7 @@ public class OutageService {
         dto.put("status", event.getStatus());
         dto.put("affectedExamIds", JsonHelper.toStringList(event.getAffectedExamIds()));
         dto.put("latestProposalVersion", event.getLatestProposalVersion());
+        dto.put("source", event.getSource());
         dto.put("createdAt", event.getCreatedAt());
         return dto;
     }
@@ -205,6 +284,7 @@ public class OutageService {
         dto.put("version", proposal.getVersion());
         dto.put("status", proposal.getStatus());
         dto.put("proposal", JsonHelper.parse(proposal.getProposalJson()));
+        dto.put("editable", boolEditable(proposal));
         dto.put("decidedAt", proposal.getDecidedAt());
         return dto;
     }

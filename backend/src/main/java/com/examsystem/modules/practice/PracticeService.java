@@ -157,6 +157,9 @@ public class PracticeService {
 
         if (!correct) {
             upsertWrongBook(session.getEmployeeId(), questionVersionId);
+        } else {
+            wrongBookRepository.findByEmployeeIdAndQuestionVersionId(session.getEmployeeId(), questionVersionId)
+                    .ifPresent(wrongBookRepository::delete);
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -170,7 +173,22 @@ public class PracticeService {
     public void finishSession(String sessionId) {
         PracticeSession session = getSessionEntity(sessionId);
         SecurityUtils.requireOwnerOrAdmin(session.getEmployeeId());
+        if (!"in_progress".equals(session.getStatus())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "练习已结束", 422);
+        }
         session.setStatus("finished");
+        session.setFinishedAt(Instant.now());
+        sessionRepository.save(session);
+    }
+
+    @Transactional
+    public void abandonSession(String sessionId) {
+        PracticeSession session = getSessionEntity(sessionId);
+        SecurityUtils.requireOwnerOrAdmin(session.getEmployeeId());
+        if (!"in_progress".equals(session.getStatus())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "练习已结束", 422);
+        }
+        session.setStatus("abandoned");
         session.setFinishedAt(Instant.now());
         sessionRepository.save(session);
     }

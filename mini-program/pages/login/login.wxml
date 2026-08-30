@@ -1,10 +1,94 @@
-<view class="container">
-  <view class="card">
-    <view class="title">员工登录</view>
-    <view class="subtitle">MP-01 小程序登录</view>
-    <input placeholder="员工号" value="{{employeeNo}}" bindinput="onEmployeeNoInput" />
-    <input placeholder="密码" password value="{{password}}" bindinput="onPasswordInput" />
+<view class="page login-page">
+  <view class="hero">
+    <view class="brand-mark">企</view>
+    <view class="hero-title">企业内部练习与考试</view>
+    <view class="hero-sub">使用工号登录，手机号仅用于短信找回密码</view>
+  </view>
+
+  <view class="form" wx:if="{{view === 'login'}}">
+    <view class="field">
+      <text class="field-label">工号</text>
+      <input
+        class="field-input"
+        placeholder="请输入工号"
+        placeholder-class="placeholder"
+        value="{{employeeNo}}"
+        bindinput="onEmployeeNoInput"
+      />
+    </view>
+    <view class="field">
+      <text class="field-label">密码</text>
+      <input
+        class="field-input"
+        placeholder="请输入密码"
+        placeholder-class="placeholder"
+        password
+        value="{{password}}"
+        bindinput="onPasswordInput"
+      />
+    </view>
     <view class="error" wx:if="{{error}}">{{error}}</view>
     <button class="btn-primary" loading="{{loading}}" bindtap="onLogin">登录</button>
+    <button class="btn-ghost" bindtap="onShowForgot">短信找回密码</button>
+    <view class="help-text">登录账号为工号，不是手机号。找回密码将向预留手机发送验证码。</view>
+  </view>
+
+  <view class="form" wx:else>
+    <view class="field">
+      <text class="field-label">工号</text>
+      <input
+        class="field-input"
+        placeholder="请输入工号"
+        value="{{employeeNo}}"
+        bindinput="onEmployeeNoInput"
+      />
+    </view>
+    <view class="field">
+      <text class="field-label">预留手机号</text>
+      <input
+        class="field-input"
+        type="number"
+        placeholder="请输入档案手机号"
+        value="{{phone}}"
+        bindinput="onPhoneInput"
+      />
+    </view>
+    <block wx:if="{{forgotStep !== 'idle'}}">
+      <view class="field">
+        <text class="field-label">验证码</text>
+        <input
+          class="field-input"
+          type="number"
+          placeholder="6 位验证码"
+          value="{{code}}"
+          bindinput="onCodeInput"
+        />
+      </view>
+    </block>
+    <block wx:if="{{forgotStep === 'reset'}}">
+      <view class="field">
+        <text class="field-label">新密码</text>
+        <input
+          class="field-input"
+          password
+          placeholder="至少 8 位"
+          value="{{newPassword}}"
+          bindinput="onNewPasswordInput"
+        />
+      </view>
+    </block>
+    <view class="error" wx:if="{{error}}">{{error}}</view>
+    <view class="success" wx:if="{{success}}">{{success}}</view>
+    <button wx:if="{{forgotStep === 'idle'}}" class="btn-primary" loading="{{loading}}" bindtap="onSendResetSms">
+      发送验证码
+    </button>
+    <button wx:if="{{forgotStep === 'verify'}}" class="btn-primary" loading="{{loading}}" bindtap="onVerifyResetSms">
+      验证
+    </button>
+    <button wx:if="{{forgotStep === 'reset'}}" class="btn-primary" loading="{{loading}}" bindtap="onResetPassword">
+      重置密码
+    </button>
+    <button class="btn-ghost" bindtap="onShowLogin">返回登录</button>
+    <view class="help-text">验证码将发送至档案预留手机。提示不会说明该工号或手机号是否存在。</view>
   </view>
 </view>

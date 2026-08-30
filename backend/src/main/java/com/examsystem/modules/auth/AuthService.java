@@ -9,10 +9,12 @@ import com.examsystem.modules.auth.dto.ChangePasswordRequest;
 import com.examsystem.modules.auth.dto.LoginRequest;
 import com.examsystem.modules.auth.dto.LoginResponse;
 import com.examsystem.modules.auth.dto.PasswordResetRequest;
+import com.examsystem.modules.auth.dto.ResolveOpenIdRequest;
 import com.examsystem.modules.auth.dto.SessionDto;
 import com.examsystem.modules.auth.dto.SmsSendRequest;
 import com.examsystem.modules.auth.dto.SmsVerifyRequest;
 import com.examsystem.modules.auth.dto.SmsVerifyResponse;
+import com.examsystem.modules.auth.dto.UnbindMiniProgramRequest;
 import com.examsystem.modules.organization.entity.Employee;
 import com.examsystem.modules.organization.repository.EmployeeRepository;
 import com.examsystem.security.EmployeePrincipal;
@@ -192,10 +194,52 @@ public class AuthService {
                 "miniProgram.bind",
                 "Employee",
                 employee.getId(),
-                Map.of("miniProgramOpenId", beforeOpenId),
+                Map.of("miniProgramOpenId", beforeOpenId == null ? "" : beforeOpenId),
                 Map.of("miniProgramOpenId", request.miniProgramOpenId()),
                 null
         );
+    }
+
+    @Transactional
+    public void unbindMiniProgram(UnbindMiniProgramRequest request) {
+        EmployeePrincipal principal = SecurityUtils.getCurrentPrincipal();
+        if (principal == null) {
+            throw BusinessException.of(ErrorCode.AUTH_SESSION_EXPIRED, "会话已过期", 401);
+        }
+
+        SmsVerificationService.VerificationResult verification =
+                smsVerificationService.consumeVerificationToken(request.verificationToken());
+        if (!"unbindMiniProgram".equals(verification.purpose())
+                && !"bindMiniProgram".equals(verification.purpose())) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "验证令牌用途不匹配", 401);
+        }
+
+        Employee employee = employeeRepository.findById(principal.getEmployeeId())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.AUTH_SESSION_EXPIRED, "会话已过期", 401));
+        if (employee.getPhone() == null || !employee.getPhone().equals(verification.phone())) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "手机号不匹配", 401);
+        }
+        if (employee.getMiniProgramOpenId() == null || employee.getMiniProgramOpenId().isBlank()) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "当前账号未绑定微信", 422);
+        }
+
+        String beforeOpenId = employee.getMiniProgramOpenId();
+        employee.setMiniProgramOpenId(null);
+        employeeRepository.save(employee);
+        auditService.log(
+                "miniProgram.unbind",
+                "Employee",
+                employee.getId(),
+                Map.of("miniProgramOpenId", beforeOpenId),
+                Map.of("miniProgramOpenId", ""),
+                null
+        );
+    }
+
+    public Map<String, Object> resolveOpenId(ResolveOpenIdRequest request) {
+        SecurityUtils.requirePrincipal();
+        String openId = "mp-" + Integer.toUnsignedString(request.code().hashCode(), 16);
+        return Map.of("openId", openId);
     }
 
     private void registerFailedLogin(Employee employee) {

@@ -1,6 +1,7 @@
 package com.examsystem.common.storage;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 
 @Component
+@ConditionalOnProperty(name = "exam.storage.backend", havingValue = "local", matchIfMissing = true)
 public class LocalFileStore implements FileStore {
 
     private final Path root;
@@ -46,6 +48,16 @@ public class LocalFileStore implements FileStore {
             return Optional.empty();
         }
         return Optional.of(new FileSystemResource(target));
+    }
+
+    @Override
+    public void delete(String fileKey) {
+        Path target = resolve(fileKey);
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to delete file " + fileKey, e);
+        }
     }
 
     private void move(Path temp, Path target) throws IOException {

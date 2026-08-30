@@ -7,6 +7,7 @@ Page({
     currentIndex: 0,
     currentItem: null,
     selectedKeys: [],
+    displayOptions: [],
     answerVersions: {},
     remainingSeconds: 0,
     loading: false,
@@ -17,6 +18,7 @@ Page({
   },
 
   timer: null,
+  saveTimer: null,
 
   onLoad(options) {
     if (!app.globalData.token) {
@@ -36,6 +38,9 @@ Page({
     if (this.timer) {
       clearInterval(this.timer)
     }
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+    }
   },
 
   loadPaper() {
@@ -46,9 +51,11 @@ Page({
       success: (res) => {
         if (res.statusCode === 200 && res.data?.data?.items) {
           const paper = res.data.data
+          const currentItem = paper.items[0] || null
           this.setData({
             paper,
-            currentItem: paper.items[0] || null,
+            currentItem,
+            displayOptions: this.buildOptions(currentItem, []),
           })
           this.loadTiming()
         } else {
@@ -100,17 +107,48 @@ Page({
     return type === 'multipleChoice'
   },
 
+  optionKey(opt) {
+    return opt.key || opt.label || opt.id
+  },
+
+  buildOptions(item, selectedKeys) {
+    const selected = new Set(selectedKeys || [])
+    return (item?.options || []).map((opt) => {
+      const key = this.optionKey(opt)
+      const isSelected = selected.has(key)
+      return { ...opt, key, selected: isSelected, state: isSelected ? 'selected' : '' }
+    })
+  },
+
+  applySelection(selectedKeys) {
+    this.setData({
+      selectedKeys,
+      displayOptions: this.buildOptions(this.data.currentItem, selectedKeys),
+    })
+  },
+
   onSelectOption(e) {
     const key = e.currentTarget.dataset.key
+    if (!key) return
     const type = this.data.currentItem?.type
+    let next = [key]
     if (this.isMultiple(type)) {
       const set = new Set(this.data.selectedKeys)
       if (set.has(key)) set.delete(key)
       else set.add(key)
-      this.setData({ selectedKeys: [...set] })
-    } else {
-      this.setData({ selectedKeys: [key] })
+      next = [...set]
     }
+    this.applySelection(next)
+    this.scheduleSave()
+  },
+
+  scheduleSave() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+    }
+    this.saveTimer = setTimeout(() => {
+      this.saveCurrentAnswer()
+    }, 600)
   },
 
   saveCurrentAnswer(callback) {
@@ -150,7 +188,12 @@ Page({
     this.saveCurrentAnswer(() => {
       const idx = this.data.currentIndex - 1
       const item = this.data.paper.items[idx]
-      this.setData({ currentIndex: idx, currentItem: item, selectedKeys: [] })
+      this.setData({
+        currentIndex: idx,
+        currentItem: item,
+        selectedKeys: [],
+        displayOptions: this.buildOptions(item, []),
+      })
     })
   },
 
@@ -160,7 +203,12 @@ Page({
     this.saveCurrentAnswer(() => {
       const idx = this.data.currentIndex + 1
       const item = items[idx]
-      this.setData({ currentIndex: idx, currentItem: item, selectedKeys: [] })
+      this.setData({
+        currentIndex: idx,
+        currentItem: item,
+        selectedKeys: [],
+        displayOptions: this.buildOptions(item, []),
+      })
     })
   },
 

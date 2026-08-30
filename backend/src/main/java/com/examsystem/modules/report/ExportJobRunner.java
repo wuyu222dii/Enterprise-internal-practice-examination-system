@@ -1,5 +1,6 @@
 package com.examsystem.modules.report;
 
+import com.examsystem.common.ExcelCellHelper;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.exam.entity.Exam;
@@ -303,7 +304,7 @@ public class ExportJobRunner {
     }
 
     private void setText(Row row, int column, String value) {
-        row.createCell(column).setCellValue(value != null ? value : "");
+        row.createCell(column).setCellValue(ExcelCellHelper.sanitize(value != null ? value : ""));
     }
 
     private void setNumber(Row row, int column, Number value) {

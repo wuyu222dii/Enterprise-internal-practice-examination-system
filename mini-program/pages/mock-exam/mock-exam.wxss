@@ -29,22 +29,29 @@
 
 .option {
   display: flex;
-  padding: 20rpx;
-  margin-bottom: 12rpx;
-  background: #f5f7fa;
-  border-radius: 8rpx;
-  border: 2rpx solid transparent;
+  align-items: center;
+  padding: 24rpx 28rpx;
+  margin-bottom: 16rpx;
+  background: #ffffff;
+  border-radius: 16rpx;
+  border: 2rpx solid #e5e7eb;
+  color: #1f2937;
 }
 
 .option.selected {
   border-color: #1b4b8a;
-  background: #eef3fa;
+  background: #e8f0f8;
+  color: #1b4b8a;
 }
 
 .option-key {
-  margin-right: 12rpx;
+  width: 40rpx;
+  margin-right: 16rpx;
   font-weight: 600;
-  color: #1b4b8a;
+}
+
+.option-text {
+  flex: 1;
 }
 
 .nav-row {

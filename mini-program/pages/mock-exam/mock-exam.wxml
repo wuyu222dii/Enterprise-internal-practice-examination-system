@@ -20,14 +20,14 @@
     <view class="score-hint">本题 {{currentItem.score}} 分</view>
 
     <view
-      wx:for="{{currentItem.options}}"
+      wx:for="{{displayOptions}}"
       wx:key="key"
-      class="option {{selectedKeys.indexOf(item.key) >= 0 ? 'selected' : ''}}"
+      class="option {{item.state}}"
       data-key="{{item.key}}"
       bindtap="onSelectOption"
     >
-      <text class="option-key">{{item.key}}.</text>
-      <text>{{item.text}}</text>
+      <text class="option-key">{{item.key}}</text>
+      <text class="option-text">{{item.text}}</text>
     </view>
 
     <view class="nav-row">

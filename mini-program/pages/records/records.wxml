@@ -27,6 +27,6 @@
       <view wx:if="{{!loading && mockRecords.length === 0}}" class="stub">暂无模拟记录</view>
     </view>
 
-    <navigator url="/pages/home/home" open-type="navigateBack" class="back-link">返回首页</navigator>
+    <navigator url="/pages/account/account" open-type="switchTab" class="back-link">返回我的</navigator>
   </view>
 </view>

@@ -16,6 +16,8 @@ dist/
 # Env
 .env
 .env.local
+application-local.yml
+backend/src/main/resources/application-local.yml
 
 # Logs
 *.log
@@ -24,3 +26,6 @@ dist/
 pgdata/
 miniodata/
 backend/data/
+data/storage/
+backend/data/storage/
+scripts/ops/backups/

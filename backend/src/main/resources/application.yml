@@ -55,11 +55,27 @@ exam:
     lock-duration-minutes: 15
     max-failed-attempts: 5
   storage:
+    backend: ${EXAM_STORAGE_BACKEND:local}
     local-path: ./data/storage
-    minio-endpoint: http://localhost:19000
-    minio-access-key: minioadmin
-    minio-secret-key: minioadmin
-    bucket: exam-files
+    minio-endpoint: ${EXAM_MINIO_ENDPOINT:http://localhost:19000}
+    minio-access-key: ${EXAM_MINIO_ACCESS_KEY:minioadmin}
+    minio-secret-key: ${EXAM_MINIO_SECRET_KEY:minioadmin}
+    bucket: ${EXAM_STORAGE_BUCKET:exam-files}
+  sms:
+    provider: ${EXAM_SMS_PROVIDER:mock}
+  retention:
+    enabled: true
+    import-confirm-days: 30
+    import-file-days: 180
+    export-hours: 24
+    credential-hours: 24
+  outage:
+    probe-enabled: true
+    observation-window-ms: 15000
+    probe-interval-ms: 5000
+    compensation-minutes: 15
+  wechat:
+    mock-openid: true
 
 management:
   endpoints:

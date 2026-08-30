@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, apiFetch, newIdempotencyKey } from '../api/client'
 
@@ -39,6 +39,7 @@ interface AttemptDetail {
   attemptId: string
   examId: string
   attemptStatus: string
+  runStatus?: string
   timing: AttemptTiming
   confirmedAnswers: ConfirmedAnswer[]
 }
@@ -46,6 +47,9 @@ interface AttemptDetail {
 type AnswerMap = Record<string, string[]>
 type VersionMap = Record<string, number>
 type SavingMap = Record<string, boolean>
+type SavedMap = Record<string, boolean>
+
+const SAVE_DEBOUNCE_MS = 600
 
 export default function ExamWorkbenchPage() {
   const { attemptId } = useParams<{ attemptId: string }>()
@@ -56,10 +60,15 @@ export default function ExamWorkbenchPage() {
   const [answers, setAnswers] = useState<AnswerMap>({})
   const [versions, setVersions] = useState<VersionMap>({})
   const [saving, setSaving] = useState<SavingMap>({})
+  const [saved, setSaved] = useState<SavedMap>({})
+  const [paused, setPaused] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [remainingSec, setRemainingSec] = useState<number | null>(null)
+  const saveTimers = useRef<Record<string, number>>({})
+  const pendingAnswers = useRef<AnswerMap>({})
+  const versionsRef = useRef<VersionMap>({})
 
   const items = paper?.items ?? []
   const currentItem = items[currentIndex] ?? null
@@ -93,6 +102,13 @@ export default function ExamWorkbenchPage() {
       }
       setAnswers(initialAnswers)
       setVersions(initialVersions)
+      versionsRef.current = initialVersions
+      const initiallySaved: SavedMap = {}
+      for (const confirmed of detail.confirmedAnswers ?? []) {
+        initiallySaved[confirmed.itemId] = confirmed.saveStatus === 'saved'
+      }
+      setSaved(initiallySaved)
+      setPaused(detail.runStatus === 'paused')
 
       const timing = detail.timing
       if (timing?.remainingSeconds != null) {
@@ -121,23 +137,41 @@ export default function ExamWorkbenchPage() {
     return () => window.clearInterval(timer)
   }, [remainingSec])
 
+  useEffect(() => {
+    return () => {
+      for (const timer of Object.values(saveTimers.current)) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    versionsRef.current = versions
+  }, [versions])
+
   async function syncConfirmedAnswers() {
     if (!attemptId) return
     const { data } = await apiFetch<AttemptDetail>(`/attempts/${attemptId}`)
     const latestAnswers: AnswerMap = {}
     const latestVersions: VersionMap = {}
+    const latestSaved: SavedMap = {}
     for (const confirmed of data.confirmedAnswers ?? []) {
       latestAnswers[confirmed.itemId] = confirmed.answer
       latestVersions[confirmed.itemId] = confirmed.confirmedVersion
+      latestSaved[confirmed.itemId] = confirmed.saveStatus === 'saved'
     }
     setAnswers(latestAnswers)
     setVersions(latestVersions)
+    versionsRef.current = latestVersions
+    setSaved(latestSaved)
+    setPaused(data.runStatus === 'paused')
   }
 
   async function persistAnswer(itemId: string, answer: string[]) {
     if (!attemptId) return
-    const nextVersion = (versions[itemId] ?? 0) + 1
+    const nextVersion = (versionsRef.current[itemId] ?? 0) + 1
     setSaving((prev) => ({ ...prev, [itemId]: true }))
+    setSaved((prev) => ({ ...prev, [itemId]: false }))
     setError('')
     try {
       const { data } = await apiFetch<{
@@ -148,34 +182,56 @@ export default function ExamWorkbenchPage() {
         method: 'PUT',
         body: JSON.stringify({ answer, answerVersion: nextVersion }),
       })
+      versionsRef.current = { ...versionsRef.current, [itemId]: data.confirmedVersion }
       setVersions((prev) => ({ ...prev, [itemId]: data.confirmedVersion }))
+      setSaved((prev) => ({ ...prev, [itemId]: data.saveStatus === 'saved' }))
     } catch (err) {
+      setSaved((prev) => ({ ...prev, [itemId]: false }))
       if (err instanceof ApiError && err.status === 409) {
         await syncConfirmedAnswers()
         setError('答案版本冲突，已同步最新数据，请重新选择答案')
-      } else {
-        setError(err instanceof Error ? err.message : '保存失败')
+        return
       }
-      throw err
+      if (err instanceof ApiError && err.status === 403) {
+        setPaused(true)
+        setError('考试已暂停，答案暂无法保存。恢复后将自动继续。')
+        return
+      }
+      setError(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSaving((prev) => ({ ...prev, [itemId]: false }))
     }
   }
 
-  async function handleSingleSelect(itemId: string, key: string) {
-    const next = [key]
-    setAnswers((prev) => ({ ...prev, [itemId]: next }))
-    await persistAnswer(itemId, next)
+  function scheduleSave(itemId: string, answer: string[]) {
+    pendingAnswers.current[itemId] = answer
+    if (saveTimers.current[itemId]) {
+      window.clearTimeout(saveTimers.current[itemId])
+    }
+    saveTimers.current[itemId] = window.setTimeout(() => {
+      const pending = pendingAnswers.current[itemId]
+      if (pending) {
+        void persistAnswer(itemId, pending)
+      }
+    }, SAVE_DEBOUNCE_MS)
   }
 
-  async function handleMultipleToggle(itemId: string, key: string) {
+  function handleSingleSelect(itemId: string, key: string) {
+    const next = [key]
+    setAnswers((prev) => ({ ...prev, [itemId]: next }))
+    setSaved((prev) => ({ ...prev, [itemId]: false }))
+    scheduleSave(itemId, next)
+  }
+
+  function handleMultipleToggle(itemId: string, key: string) {
     const current = answers[itemId] ?? []
     const next = current.includes(key)
       ? current.filter((k) => k !== key)
       : [...current, key].sort()
     setAnswers((prev) => ({ ...prev, [itemId]: next }))
+    setSaved((prev) => ({ ...prev, [itemId]: false }))
     if (next.length > 0) {
-      await persistAnswer(itemId, next)
+      scheduleSave(itemId, next)
     }
   }
 
@@ -216,7 +272,7 @@ export default function ExamWorkbenchPage() {
                 <input
                   type="checkbox"
                   checked={selected.includes(opt.key)}
-                  disabled={isSaving}
+                  disabled={isSaving || paused}
                   onChange={() => handleMultipleToggle(item.itemId, opt.key)}
                 />
                 <span className="option-key">{opt.key}</span>
@@ -238,7 +294,7 @@ export default function ExamWorkbenchPage() {
                 type={inputType}
                 name={`q-${item.itemId}`}
                 checked={selected[0] === opt.key}
-                disabled={isSaving}
+                disabled={isSaving || paused}
                 onChange={() => handleSingleSelect(item.itemId, opt.key)}
               />
               <span className="option-key">{opt.key}</span>
@@ -262,6 +318,11 @@ export default function ExamWorkbenchPage() {
         </div>
       </header>
 
+      {paused && (
+        <p className="form-error" role="status">
+          考试已暂停，当前无法保存答案或交卷。请等待管理员确认补时后继续。
+        </p>
+      )}
       {error && <p className="form-error">{error}</p>}
       {loading && <p>加载中…</p>}
 
@@ -281,6 +342,14 @@ export default function ExamWorkbenchPage() {
                   {saving[currentItem.itemId] && (
                     <span className="save-indicator">保存中…</span>
                   )}
+                  {!saving[currentItem.itemId] && saved[currentItem.itemId] && (
+                    <span className="save-indicator">已保存</span>
+                  )}
+                  {!saving[currentItem.itemId] &&
+                    !saved[currentItem.itemId] &&
+                    (answers[currentItem.itemId]?.length ?? 0) > 0 && (
+                      <span className="save-indicator">未保存</span>
+                    )}
                 </div>
                 <h2 className="question-stem">{currentItem.stem}</h2>
                 {renderOptions(currentItem)}
@@ -314,7 +383,7 @@ export default function ExamWorkbenchPage() {
                 type="button"
                 className="btn-primary"
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || paused}
               >
                 {submitting ? '交卷中…' : '交卷'}
               </button>

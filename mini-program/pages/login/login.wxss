@@ -1,19 +1,16 @@
-input {
-  display: block;
-  width: 100%;
-  padding: 20rpx;
-  margin-bottom: 20rpx;
-  border: 1rpx solid #dce3eb;
-  border-radius: 8rpx;
-  box-sizing: border-box;
+.login-page {
+  background: #ffffff;
+  min-height: 100vh;
 }
 
-.error {
-  color: #c0392b;
-  font-size: 24rpx;
-  margin-bottom: 16rpx;
+.placeholder {
+  color: #9ca3af;
 }
 
-button {
+.btn-primary {
+  margin-top: 8rpx;
+}
+
+.btn-ghost {
   margin-top: 16rpx;
 }

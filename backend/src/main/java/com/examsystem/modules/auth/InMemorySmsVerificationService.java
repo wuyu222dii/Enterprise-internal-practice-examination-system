@@ -3,6 +3,7 @@ package com.examsystem.modules.auth;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -28,7 +29,7 @@ public class InMemorySmsVerificationService implements SmsVerificationService {
     public void sendCode(String phone, String purpose) {
         String code = "123456";
         codes.put(key(phone, purpose), new CodeEntry(code, Instant.now().plus(CODE_TTL_MINUTES, ChronoUnit.MINUTES)));
-        log.info("[SMS Mock] phone={} purpose={} code={}", phone, purpose, code);
+        log.info("[SMS Mock] phone={} purpose={} code={}", LogSanitizer.maskPhone(phone), purpose, code);
     }
 
     @Override

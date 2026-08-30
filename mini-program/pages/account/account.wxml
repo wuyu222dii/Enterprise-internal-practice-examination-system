@@ -1,71 +1,136 @@
-<view class="container">
-  <view class="card">
-    <view class="title">{{forceChange ? '修改密码' : '账号设置'}}</view>
-    <view class="subtitle">MP-12 密码与微信绑定</view>
-
-    <view wx:if="{{forceChange}}" class="hint">首次登录须修改密码后才能继续使用</view>
-
-    <view class="profile">
-      <view class="profile-row">
-        <text class="label">姓名</text>
-        <text>{{displayName}}</text>
-      </view>
-      <view class="profile-row">
-        <text class="label">工号</text>
-        <text>{{employeeNo}}</text>
-      </view>
-      <view class="profile-row">
-        <text class="label">微信绑定</text>
-        <text class="{{miniProgramBound ? 'status-ok' : 'status-pending'}}">
-          {{miniProgramBound ? '已绑定' : '未绑定'}}
-        </text>
+<view class="page">
+  <block wx:if="{{view === 'menu' && !forceChange}}">
+    <view class="profile-hero">
+      <view class="avatar">{{avatarInitial}}</view>
+      <view class="profile-meta">
+        <view class="header-title">{{displayName}}</view>
+        <view class="employee-no">{{employeeNo}}</view>
+        <view class="header-sub">{{miniProgramBound ? '微信已绑定' : '微信未绑定'}}</view>
       </view>
     </view>
+    <view class="body">
+      <view class="menu">
+        <view class="menu-item" bindtap="onOpenRecords">
+          <view class="menu-copy">
+            <view class="menu-title">学习记录</view>
+            <view class="menu-sub">练习 / 模拟 / 正式</view>
+          </view>
+          <text class="chevron">›</text>
+        </view>
+        <view class="menu-item" bindtap="onOpenWrongBook">
+          <view class="menu-copy">
+            <view class="menu-title">错题本</view>
+            <view class="menu-sub">重做历史错题</view>
+          </view>
+          <text class="chevron">›</text>
+        </view>
+        <view class="menu-item" bindtap="onOpenView" data-view="password">
+          <view class="menu-copy">
+            <view class="menu-title">修改密码</view>
+            <view class="menu-sub">定期更换更安全</view>
+          </view>
+          <text class="chevron">›</text>
+        </view>
+        <view class="menu-item" wx:if="{{!miniProgramBound}}" bindtap="onOpenView" data-view="bind">
+          <view class="menu-copy">
+            <view class="menu-title">绑定微信</view>
+            <view class="menu-sub">一对一绑定当前小程序身份</view>
+          </view>
+          <text class="chevron">›</text>
+        </view>
+        <view class="menu-item" wx:if="{{miniProgramBound}}" bindtap="onOpenView" data-view="unbind">
+          <view class="menu-copy">
+            <view class="menu-title danger">解绑小程序</view>
+            <view class="menu-sub">解绑后需重新绑定</view>
+          </view>
+          <text class="chevron">›</text>
+        </view>
+        <view class="menu-item" bindtap="onOpenView" data-view="about">
+          <view class="menu-copy">
+            <view class="menu-title">关于</view>
+            <view class="menu-sub">企业内部练习与考试</view>
+          </view>
+          <text class="chevron">›</text>
+        </view>
+      </view>
+      <button class="btn-ghost" bindtap="onLogout">退出登录</button>
+    </view>
+  </block>
 
-    <view class="section-title">修改密码</view>
-    <input placeholder="当前密码" password value="{{currentPassword}}" bindinput="onCurrentPasswordInput" />
-    <input placeholder="新密码（至少 8 位）" password value="{{newPassword}}" bindinput="onNewPasswordInput" />
-    <input placeholder="确认新密码" password value="{{confirmPassword}}" bindinput="onConfirmPasswordInput" />
-    <button class="btn-primary" loading="{{loading}}" bindtap="onChangePassword">保存密码</button>
+  <view class="body" wx:else>
+    <view class="card">
+      <view class="card-title">{{forceChange ? '修改密码' : panelTitle}}</view>
+      <view class="card-meta" wx:if="{{forceChange}}">首次登录须修改密码后才能继续使用</view>
 
-    <view wx:if="{{!miniProgramBound}}" class="bind-section">
-      <view class="section-title">绑定微信</view>
-      <view class="hint">本地开发验证码固定为 123456</view>
-      <input placeholder="绑定手机号" type="number" value="{{bindPhone}}" bindinput="onBindPhoneInput" />
-      <button
-        wx:if="{{bindStep === 'idle'}}"
-        class="btn-secondary"
-        loading="{{bindLoading}}"
-        bindtap="onSendBindSms"
-      >
-        发送验证码
-      </button>
-      <block wx:if="{{bindStep === 'verify' || bindStep === 'ready'}}">
-        <input placeholder="验证码" value="{{bindCode}}" bindinput="onBindCodeInput" />
-        <button
-          wx:if="{{bindStep === 'verify'}}"
-          class="btn-secondary"
-          loading="{{bindLoading}}"
-          bindtap="onVerifyBindSms"
-        >
-          验证
-        </button>
-        <button
-          wx:if="{{bindStep === 'ready'}}"
-          class="btn-secondary"
-          loading="{{bindLoading}}"
-          bindtap="onBindMiniProgram"
-        >
-          完成绑定
-        </button>
+      <block wx:if="{{view === 'password' || forceChange}}">
+        <view class="field">
+          <text class="field-label">当前密码</text>
+          <input class="field-input" password value="{{currentPassword}}" bindinput="onCurrentPasswordInput" />
+        </view>
+        <view class="field">
+          <text class="field-label">新密码</text>
+          <input class="field-input" password placeholder="至少 8 位" value="{{newPassword}}" bindinput="onNewPasswordInput" />
+        </view>
+        <view class="field">
+          <text class="field-label">确认新密码</text>
+          <input class="field-input" password value="{{confirmPassword}}" bindinput="onConfirmPasswordInput" />
+        </view>
+        <button class="btn-primary" loading="{{loading}}" bindtap="onChangePassword">保存密码</button>
       </block>
+
+      <block wx:if="{{view === 'bind'}}">
+        <view class="help-text">本地开发验证码固定为 123456</view>
+        <view class="field">
+          <text class="field-label">绑定手机号</text>
+          <input class="field-input" type="number" value="{{bindPhone}}" bindinput="onBindPhoneInput" />
+        </view>
+        <button wx:if="{{bindStep === 'idle'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onSendBindSms">
+          发送验证码
+        </button>
+        <block wx:if="{{bindStep === 'verify' || bindStep === 'ready'}}">
+          <view class="field">
+            <text class="field-label">验证码</text>
+            <input class="field-input" value="{{bindCode}}" bindinput="onBindCodeInput" />
+          </view>
+          <button wx:if="{{bindStep === 'verify'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onVerifyBindSms">
+            验证
+          </button>
+          <button wx:if="{{bindStep === 'ready'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onBindMiniProgram">
+            完成绑定
+          </button>
+        </block>
+      </block>
+
+      <block wx:if="{{view === 'unbind'}}">
+        <view class="help-text">换绑或解绑需再次短信验证</view>
+        <view class="field">
+          <text class="field-label">绑定手机号</text>
+          <input class="field-input" type="number" value="{{unbindPhone}}" bindinput="onUnbindPhoneInput" />
+        </view>
+        <button wx:if="{{unbindStep === 'idle'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onSendUnbindSms">
+          发送解绑验证码
+        </button>
+        <block wx:if="{{unbindStep === 'verify' || unbindStep === 'ready'}}">
+          <view class="field">
+            <text class="field-label">验证码</text>
+            <input class="field-input" value="{{unbindCode}}" bindinput="onUnbindCodeInput" />
+          </view>
+          <button wx:if="{{unbindStep === 'verify'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onVerifyUnbindSms">
+            验证
+          </button>
+          <button wx:if="{{unbindStep === 'ready'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onUnbindMiniProgram">
+            确认解绑
+          </button>
+        </block>
+      </block>
+
+      <block wx:if="{{view === 'about'}}">
+        <view class="card-meta">企业内部练习与考试系统。小程序仅用于练习、模拟和正式任务查看，正式考试请在电脑端作答。</view>
+      </block>
+
+      <view class="error" wx:if="{{error}}">{{error}}</view>
+      <view class="success" wx:if="{{success}}">{{success}}</view>
+      <button wx:if="{{!forceChange}}" class="btn-ghost" bindtap="onBackMenu">返回</button>
     </view>
-
-    <view wx:if="{{error}}" class="error">{{error}}</view>
-    <view wx:if="{{success}}" class="success">{{success}}</view>
-
-    <navigator wx:if="{{!forceChange}}" url="/pages/home/home" open-type="navigateBack" class="back-link">
-      返回首页
-    </navigator>
   </view>
 </view>
