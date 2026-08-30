@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { apiFetch } from '../api/client'
 
 interface AuditLog {
@@ -9,6 +9,9 @@ interface AuditLog {
   targetType: string
   targetId: string
   reason: string | null
+  requestId?: string
+  before?: unknown
+  after?: unknown
 }
 
 interface PagedAuditLogs {
@@ -23,12 +26,20 @@ export default function AuditPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionType, setActionType] = useState('')
+  const [targetType, setTargetType] = useState('')
+  const [targetId, setTargetId] = useState('')
+  const [detailId, setDetailId] = useState('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (filters: { actionType: string; targetType: string; targetId: string }) => {
     setLoading(true)
     setError('')
     try {
-      const { data } = await apiFetch<PagedAuditLogs>('/admin/audit-logs?page=1&pageSize=50')
+      const params = new URLSearchParams({ page: '1', pageSize: '50' })
+      if (filters.actionType.trim()) params.set('actionType', filters.actionType.trim())
+      if (filters.targetType.trim()) params.set('targetType', filters.targetType.trim())
+      if (filters.targetId.trim()) params.set('targetId', filters.targetId.trim())
+      const { data } = await apiFetch<PagedAuditLogs>(`/admin/audit-logs?${params.toString()}`)
       setLogs(data.items)
       setTotal(data.total)
     } catch (err) {
@@ -39,8 +50,13 @@ export default function AuditPage() {
   }, [])
 
   useEffect(() => {
-    load()
+    void load({ actionType: '', targetType: '', targetId: '' })
   }, [load])
+
+  function handleFilter(e: FormEvent) {
+    e.preventDefault()
+    void load({ actionType, targetType, targetId })
+  }
 
   return (
     <div className="page">
@@ -50,6 +66,38 @@ export default function AuditPage() {
       </header>
 
       {error && <p className="form-error">{error}</p>}
+
+      <section className="card">
+        <form className="inline-form" onSubmit={handleFilter}>
+          <label>
+            动作
+            <input
+              value={actionType}
+              onChange={(e) => setActionType(e.target.value)}
+              placeholder="exam.publish"
+            />
+          </label>
+          <label>
+            目标类型
+            <input
+              value={targetType}
+              onChange={(e) => setTargetType(e.target.value)}
+              placeholder="Exam"
+            />
+          </label>
+          <label>
+            目标 ID
+            <input
+              value={targetId}
+              onChange={(e) => setTargetId(e.target.value)}
+              placeholder="exam_xxx"
+            />
+          </label>
+          <button type="submit" className="btn-primary">
+            筛选
+          </button>
+        </form>
+      </section>
 
       <section className="card">
         {loading ? (
@@ -66,6 +114,7 @@ export default function AuditPage() {
                 <th>目标类型</th>
                 <th>目标 ID</th>
                 <th>原因</th>
+                <th>详情</th>
               </tr>
             </thead>
             <tbody>
@@ -77,10 +126,24 @@ export default function AuditPage() {
                   <td>{log.targetType}</td>
                   <td>{log.targetId}</td>
                   <td>{log.reason ?? '—'}</td>
+                  <td>
+                    <button type="button" className="btn-text" onClick={() => setDetailId(log.id)}>
+                      查看
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        )}
+        {detailId && (
+          <pre className="paper-item" style={{ marginTop: 16 }}>
+            {JSON.stringify(
+              logs.find((log) => log.id === detailId) ?? {},
+              null,
+              2,
+            )}
+          </pre>
         )}
       </section>
     </div>

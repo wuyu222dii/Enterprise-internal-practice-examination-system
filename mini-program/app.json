@@ -9,6 +9,7 @@
     "pages/practice-session/practice-session",
     "pages/wrong-book/wrong-book",
     "pages/mock-exam/mock-exam",
+    "pages/review/review",
     "pages/exam-detail/exam-detail",
     "pages/records/records"
   ],

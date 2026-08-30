@@ -20,6 +20,12 @@ public class ExamSubmitScheduler {
 
     @Scheduled(fixedDelayString = "${exam.scheduler.auto-submit-ms:60000}")
     public void autoSubmitExpiredAttempts() {
+        try {
+            examService.advanceExamLifecycles();
+        } catch (Exception e) {
+            log.warn("Advance exam lifecycle failed", e);
+        }
+
         List<String> attemptIds = examService.findExpiredAttemptIds();
         if (attemptIds.isEmpty()) {
             return;

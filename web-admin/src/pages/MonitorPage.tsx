@@ -13,9 +13,25 @@ interface PagedExams {
   total: number
 }
 
+interface MonitorCounts {
+  assignedCount?: number
+  notStartedCount?: number
+  inProgressCount?: number
+  completedCount?: number
+  voidedCount?: number
+  passedCount?: number
+  failedCount?: number
+  officialValidCount?: number
+}
+
 interface MonitorData {
   examId: string
   attemptCount: number
+  runStatus?: string
+  lifecycle?: string
+  resultLocked?: boolean
+  participation?: MonitorCounts
+  results?: MonitorCounts
 }
 
 interface OutageEvent {
@@ -32,6 +48,20 @@ interface PagedOutageEvents {
   total: number
 }
 
+const LIFECYCLE_LABEL: Record<string, string> = {
+  draft: '草稿',
+  notStarted: '未开始',
+  openForAttempt: '开放开卷',
+  closing: '收尾中',
+  ended: '已结束',
+  cancelled: '已取消',
+}
+
+function lifecycleLabel(value?: string) {
+  if (!value) return '—'
+  return LIFECYCLE_LABEL[value] ?? value
+}
+
 export default function MonitorPage() {
   const [exams, setExams] = useState<ExamSummary[]>([])
   const [examId, setExamId] = useState('')
@@ -41,6 +71,7 @@ export default function MonitorPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [pausing, setPausing] = useState(false)
+  const [detecting, setDetecting] = useState(false)
   const [confirmingId, setConfirmingId] = useState('')
   const [rejectingId, setRejectingId] = useState('')
 
@@ -106,6 +137,28 @@ export default function MonitorPage() {
     }
   }
 
+  async function handleDetect() {
+    if (!window.confirm('将按当前考试触发故障检测提案，确认继续？')) return
+    setDetecting(true)
+    setError('')
+    setSuccess('')
+    try {
+      await apiFetch('/admin/outage-events/detect', {
+        method: 'POST',
+        body: JSON.stringify({
+          affectedExamIds: examId ? [examId] : [],
+          reason: '管理后台触发检测',
+        }),
+      })
+      setSuccess('已生成检测提案')
+      await loadMonitor(examId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '检测失败')
+    } finally {
+      setDetecting(false)
+    }
+  }
+
   async function handleConfirmProposal(event: OutageEvent) {
     if (!window.confirm(`确认故障事件 ${event.id} 的提案 v${event.latestProposalVersion}？`)) return
     setConfirmingId(event.id)
@@ -152,12 +205,14 @@ export default function MonitorPage() {
   }
 
   const selectedExam = exams.find((exam) => exam.id === examId)
+  const participation = monitor?.participation
+  const results = monitor?.results
 
   return (
     <div className="page">
       <header className="page-header">
         <h1>考试监控</h1>
-        <p className="page-desc">过程监控、暂停考试与故障处置</p>
+        <p className="page-desc">AD-13 参与维 / 结果维、暂停与故障检测提案</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -165,17 +220,22 @@ export default function MonitorPage() {
 
       <section className="card">
         <h2>选择考试</h2>
-        <label>
-          考试
-          <select value={examId} onChange={(e) => setExamId(e.target.value)} disabled={loading}>
-            <option value="">请选择考试</option>
-            {exams.map((exam) => (
-              <option key={exam.id} value={exam.id}>
-                {exam.title} ({exam.lifecycle})
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="inline-form">
+          <label>
+            考试
+            <select value={examId} onChange={(e) => setExamId(e.target.value)} disabled={loading}>
+              <option value="">请选择考试</option>
+              {exams.map((exam) => (
+                <option key={exam.id} value={exam.id}>
+                  {exam.title} ({lifecycleLabel(exam.lifecycle)})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="btn-secondary" onClick={handleDetect} disabled={detecting}>
+            {detecting ? '检测中…' : '运行故障检测'}
+          </button>
+        </div>
       </section>
 
       {monitor && selectedExam && (
@@ -184,11 +244,54 @@ export default function MonitorPage() {
           <dl className="detail-list">
             <dt>考试</dt>
             <dd>{selectedExam.title}</dd>
+            <dt>生命周期</dt>
+            <dd>
+              {lifecycleLabel(monitor.lifecycle ?? selectedExam.lifecycle)}
+              {monitor.resultLocked ? ' · 结果锁定' : ''}
+            </dd>
             <dt>运行状态</dt>
-            <dd>{selectedExam.runStatus}</dd>
+            <dd>{monitor.runStatus ?? selectedExam.runStatus}</dd>
             <dt>尝试总数</dt>
             <dd>{monitor.attemptCount}</dd>
           </dl>
+          <h3>参与维</h3>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <div className="stat-label">应考</div>
+              <div className="stat-value">{participation?.assignedCount ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">未开始</div>
+              <div className="stat-value">{participation?.notStartedCount ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">进行中</div>
+              <div className="stat-value">{participation?.inProgressCount ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">已完成</div>
+              <div className="stat-value">{participation?.completedCount ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">已作废</div>
+              <div className="stat-value">{participation?.voidedCount ?? 0}</div>
+            </div>
+          </div>
+          <h3>结果维</h3>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <div className="stat-label">正式有效</div>
+              <div className="stat-value">{results?.officialValidCount ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">通过</div>
+              <div className="stat-value">{results?.passedCount ?? 0}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">未通过</div>
+              <div className="stat-value">{results?.failedCount ?? 0}</div>
+            </div>
+          </div>
           {selectedExam.runStatus !== 'paused' && (
             <button
               type="button"

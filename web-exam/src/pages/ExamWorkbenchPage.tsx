@@ -32,6 +32,7 @@ interface AttemptTiming {
   startedAt: string
   expiresAt: string
   remainingSeconds: number
+  observationRemainingSeconds?: number
   serverNow: string
 }
 
@@ -40,6 +41,8 @@ interface AttemptDetail {
   examId: string
   attemptStatus: string
   runStatus?: string
+  inObservation?: boolean
+  resultLocked?: boolean
   timing: AttemptTiming
   confirmedAnswers: ConfirmedAnswer[]
 }
@@ -62,16 +65,19 @@ export default function ExamWorkbenchPage() {
   const [saving, setSaving] = useState<SavingMap>({})
   const [saved, setSaved] = useState<SavedMap>({})
   const [paused, setPaused] = useState(false)
+  const [observing, setObserving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [remainingSec, setRemainingSec] = useState<number | null>(null)
+  const [observationSec, setObservationSec] = useState(0)
   const saveTimers = useRef<Record<string, number>>({})
   const pendingAnswers = useRef<AnswerMap>({})
   const versionsRef = useRef<VersionMap>({})
 
   const items = paper?.items ?? []
   const currentItem = items[currentIndex] ?? null
+  const readOnly = paused || observing
 
   const answeredSet = useMemo(() => {
     const set = new Set<string>()
@@ -80,6 +86,25 @@ export default function ExamWorkbenchPage() {
     }
     return set
   }, [answers])
+
+  const applyDetail = useCallback((detail: AttemptDetail) => {
+    setAttempt(detail)
+    setPaused(detail.runStatus === 'paused')
+    const inObservation =
+      Boolean(detail.inObservation) ||
+      (detail.attemptStatus === 'inProgress' && (detail.timing?.remainingSeconds ?? 1) <= 0)
+    setObserving(inObservation && detail.attemptStatus === 'inProgress' && detail.runStatus !== 'paused')
+    const timing = detail.timing
+    if (timing?.remainingSeconds != null) {
+      setRemainingSec(Math.max(0, Math.floor(timing.remainingSeconds)))
+    }
+    if (timing?.observationRemainingSeconds != null) {
+      setObservationSec(Math.max(0, Math.floor(timing.observationRemainingSeconds)))
+    }
+    if (detail.attemptStatus === 'completed') {
+      navigate(`/attempts/${detail.attemptId}/result`, { replace: true })
+    }
+  }, [navigate])
 
   const load = useCallback(async () => {
     if (!attemptId) return
@@ -91,51 +116,62 @@ export default function ExamWorkbenchPage() {
         apiFetch<Paper>(`/attempts/${attemptId}/paper`),
       ])
       const detail = attemptRes.data
-      setAttempt(detail)
+      applyDetail(detail)
       setPaper(paperRes.data)
 
       const initialAnswers: AnswerMap = {}
       const initialVersions: VersionMap = {}
+      const initiallySaved: SavedMap = {}
       for (const confirmed of detail.confirmedAnswers ?? []) {
         initialAnswers[confirmed.itemId] = confirmed.answer
         initialVersions[confirmed.itemId] = confirmed.confirmedVersion
+        initiallySaved[confirmed.itemId] = confirmed.saveStatus === 'saved'
       }
       setAnswers(initialAnswers)
       setVersions(initialVersions)
       versionsRef.current = initialVersions
-      const initiallySaved: SavedMap = {}
-      for (const confirmed of detail.confirmedAnswers ?? []) {
-        initiallySaved[confirmed.itemId] = confirmed.saveStatus === 'saved'
-      }
       setSaved(initiallySaved)
-      setPaused(detail.runStatus === 'paused')
-
-      const timing = detail.timing
-      if (timing?.remainingSeconds != null) {
-        setRemainingSec(Math.max(0, Math.floor(timing.remainingSeconds)))
-      } else if (timing?.expiresAt && timing?.serverNow) {
-        const diff =
-          (new Date(timing.expiresAt).getTime() - new Date(timing.serverNow).getTime()) / 1000
-        setRemainingSec(Math.max(0, Math.floor(diff)))
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
     }
-  }, [attemptId])
+  }, [attemptId, applyDetail])
 
   useEffect(() => {
     load()
   }, [load])
 
   useEffect(() => {
-    if (remainingSec === null || remainingSec <= 0) return
-    const timer = window.setInterval(() => {
-      setRemainingSec((s) => (s !== null && s > 0 ? s - 1 : 0))
-    }, 1000)
+    if (remainingSec === null) return
+    if (remainingSec > 0) {
+      const timer = window.setInterval(() => {
+        setRemainingSec((s) => (s !== null && s > 0 ? s - 1 : 0))
+      }, 1000)
+      return () => window.clearInterval(timer)
+    }
+    if (observationSec > 0 && !paused) {
+      setObserving(true)
+      const timer = window.setInterval(() => {
+        setObservationSec((s) => (s > 0 ? s - 1 : 0))
+      }, 1000)
+      return () => window.clearInterval(timer)
+    }
+    return undefined
+  }, [remainingSec, observationSec, paused])
+
+  useEffect(() => {
+    if (!attemptId || (!paused && !observing)) return
+    const timer = window.setInterval(async () => {
+      try {
+        const { data } = await apiFetch<AttemptDetail>(`/attempts/${attemptId}`)
+        applyDetail(data)
+      } catch {
+        // keep overlay; next poll retries
+      }
+    }, 3000)
     return () => window.clearInterval(timer)
-  }, [remainingSec])
+  }, [attemptId, paused, observing, applyDetail])
 
   useEffect(() => {
     return () => {
@@ -152,6 +188,7 @@ export default function ExamWorkbenchPage() {
   async function syncConfirmedAnswers() {
     if (!attemptId) return
     const { data } = await apiFetch<AttemptDetail>(`/attempts/${attemptId}`)
+    applyDetail(data)
     const latestAnswers: AnswerMap = {}
     const latestVersions: VersionMap = {}
     const latestSaved: SavedMap = {}
@@ -164,11 +201,10 @@ export default function ExamWorkbenchPage() {
     setVersions(latestVersions)
     versionsRef.current = latestVersions
     setSaved(latestSaved)
-    setPaused(data.runStatus === 'paused')
   }
 
   async function persistAnswer(itemId: string, answer: string[]) {
-    if (!attemptId) return
+    if (!attemptId || readOnly) return
     const nextVersion = (versionsRef.current[itemId] ?? 0) + 1
     setSaving((prev) => ({ ...prev, [itemId]: true }))
     setSaved((prev) => ({ ...prev, [itemId]: false }))
@@ -187,14 +223,19 @@ export default function ExamWorkbenchPage() {
       setSaved((prev) => ({ ...prev, [itemId]: data.saveStatus === 'saved' }))
     } catch (err) {
       setSaved((prev) => ({ ...prev, [itemId]: false }))
+      if (err instanceof ApiError && err.code === 'ANS_IN_OBSERVATION') {
+        setObserving(true)
+        setRemainingSec(0)
+        return
+      }
       if (err instanceof ApiError && err.status === 409) {
         await syncConfirmedAnswers()
         setError('答案版本冲突，已同步最新数据，请重新选择答案')
         return
       }
-      if (err instanceof ApiError && err.status === 403) {
+      if (err instanceof ApiError && (err.status === 403 || err.code === 'ATT_EXAM_PAUSED')) {
         setPaused(true)
-        setError('考试已暂停，答案暂无法保存。恢复后将自动继续。')
+        setObserving(false)
         return
       }
       setError(err instanceof Error ? err.message : '保存失败')
@@ -204,6 +245,7 @@ export default function ExamWorkbenchPage() {
   }
 
   function scheduleSave(itemId: string, answer: string[]) {
+    if (readOnly) return
     pendingAnswers.current[itemId] = answer
     if (saveTimers.current[itemId]) {
       window.clearTimeout(saveTimers.current[itemId])
@@ -217,6 +259,7 @@ export default function ExamWorkbenchPage() {
   }
 
   function handleSingleSelect(itemId: string, key: string) {
+    if (readOnly) return
     const next = [key]
     setAnswers((prev) => ({ ...prev, [itemId]: next }))
     setSaved((prev) => ({ ...prev, [itemId]: false }))
@@ -224,6 +267,7 @@ export default function ExamWorkbenchPage() {
   }
 
   function handleEssayChange(itemId: string, text: string) {
+    if (readOnly) return
     const next = text.trim() ? [text] : []
     setAnswers((prev) => ({ ...prev, [itemId]: next }))
     setSaved((prev) => ({ ...prev, [itemId]: false }))
@@ -233,6 +277,7 @@ export default function ExamWorkbenchPage() {
   }
 
   function handleMultipleToggle(itemId: string, key: string) {
+    if (readOnly) return
     const current = answers[itemId] ?? []
     const next = current.includes(key)
       ? current.filter((k) => k !== key)
@@ -245,7 +290,12 @@ export default function ExamWorkbenchPage() {
   }
 
   async function handleSubmit() {
-    if (!attemptId) return
+    if (!attemptId || readOnly) return
+    const unsaved = items.filter((item) => !saved[item.itemId])
+    if (unsaved.length > 0) {
+      setError('存在未确认保存的答案，请等待保存完成后再交卷')
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
@@ -256,6 +306,15 @@ export default function ExamWorkbenchPage() {
       })
       navigate(`/attempts/${attemptId}/result`, { replace: true })
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'ANS_UNCONFIRMED_ANSWERS') {
+        setError('存在未确认保存的答案，请等待保存完成后再交卷')
+        return
+      }
+      if (err instanceof ApiError && err.code === 'ANS_IN_OBSERVATION') {
+        setObserving(true)
+        setRemainingSec(0)
+        return
+      }
       setError(err instanceof Error ? err.message : '交卷失败')
     } finally {
       setSubmitting(false)
@@ -268,9 +327,12 @@ export default function ExamWorkbenchPage() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
+  const timerUrgent = remainingSec !== null && remainingSec > 0 && remainingSec <= 60
+
   function renderOptions(item: PaperItem) {
     const selected = answers[item.itemId] ?? []
     const isSaving = saving[item.itemId]
+    const disabled = isSaving || readOnly
 
     if (item.type === 'essay') {
       return (
@@ -279,7 +341,7 @@ export default function ExamWorkbenchPage() {
           <textarea
             rows={8}
             value={selected[0] ?? ''}
-            disabled={isSaving || paused}
+            disabled={disabled}
             placeholder="请输入解答内容"
             onChange={(e) => handleEssayChange(item.itemId, e.target.value)}
           />
@@ -296,7 +358,7 @@ export default function ExamWorkbenchPage() {
                 <input
                   type="checkbox"
                   checked={selected.includes(opt.key)}
-                  disabled={isSaving || paused}
+                  disabled={disabled}
                   onChange={() => handleMultipleToggle(item.itemId, opt.key)}
                 />
                 <span className="option-key">{opt.key}</span>
@@ -308,17 +370,16 @@ export default function ExamWorkbenchPage() {
       )
     }
 
-    const inputType = item.type === 'trueFalse' ? 'radio' : 'radio'
     return (
       <ul className="option-list">
         {item.options.map((opt) => (
           <li key={opt.key}>
             <label className="option-label">
               <input
-                type={inputType}
+                type="radio"
                 name={`q-${item.itemId}`}
                 checked={selected[0] === opt.key}
-                disabled={isSaving || paused}
+                disabled={disabled}
                 onChange={() => handleSingleSelect(item.itemId, opt.key)}
               />
               <span className="option-key">{opt.key}</span>
@@ -332,26 +393,44 @@ export default function ExamWorkbenchPage() {
 
   return (
     <div className="page workbench">
+      {paused && (
+        <div className="workbench-overlay" role="alertdialog" aria-modal="true">
+          <div className="overlay-card">
+            <h2>考试已暂停</h2>
+            <p>当前无法保存答案或交卷。请等待管理员确认补时后继续。</p>
+          </div>
+        </div>
+      )}
+      {observing && !paused && (
+        <div className="workbench-overlay" role="status">
+          <div className="overlay-card">
+            <h2>答题时间已到，正在确认平台运行状态</h2>
+            <p>当前为只读观察，尚未交卷。请不要关闭页面。</p>
+            {observationSec > 0 && (
+              <p className="overlay-timer">观察剩余 {observationSec} 秒</p>
+            )}
+          </div>
+        </div>
+      )}
+
       <header className="page-header with-actions">
         <div>
           <h1>考试作答</h1>
           <p className="page-desc">EX-04 答题工作台</p>
         </div>
-        <div className="timer" aria-label="剩余时间">
+        <div
+          className={['timer', timerUrgent ? 'timer-urgent' : ''].filter(Boolean).join(' ')}
+          aria-label="剩余时间"
+        >
           {remainingSec !== null ? formatTime(remainingSec) : '--:--'}
         </div>
       </header>
 
-      {paused && (
-        <p className="form-error" role="status">
-          考试已暂停，当前无法保存答案或交卷。请等待管理员确认补时后继续。
-        </p>
-      )}
       {error && <p className="form-error">{error}</p>}
       {loading && <p>加载中…</p>}
 
       {attempt && paper && (
-        <div className="workbench-layout">
+        <div className={readOnly ? 'workbench-layout is-disabled' : 'workbench-layout'}>
           <main className="workbench-main">
             {currentItem ? (
               <section className="card question-card">
@@ -408,7 +487,7 @@ export default function ExamWorkbenchPage() {
                 type="button"
                 className="btn-primary"
                 onClick={handleSubmit}
-                disabled={submitting || paused}
+                disabled={submitting || readOnly}
               >
                 {submitting ? '交卷中…' : '交卷'}
               </button>

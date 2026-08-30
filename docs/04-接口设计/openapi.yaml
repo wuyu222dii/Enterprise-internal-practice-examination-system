@@ -1036,6 +1036,36 @@ paths:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
 
+  /practice/sessions/{id}/abandon:
+    post:
+      tags: [Practice]
+      operationId: abandonPracticeSession
+      summary: 放弃进行中练习
+      x-fr-ids: [FR-PRA-02]
+      x-page-ids: [MP-04]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /practice/banks/{bankId}/taxonomy:
+    get:
+      tags: [Practice]
+      operationId: getPracticeTaxonomy
+      summary: 练习题库分类与知识点
+      x-fr-ids: [FR-PRA-03]
+      x-page-ids: [MP-03]
+      parameters:
+        - name: bankId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
   /practice/wrong-book:
     get:
       tags: [Practice]
@@ -1405,6 +1435,27 @@ paths:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
 
+  /admin/exams/{id}/pause:
+    post:
+      tags: [Exam]
+      operationId: pauseExam
+      summary: 暂停考试（配合故障处置）
+      x-fr-ids: [FR-OPS-01]
+      x-page-ids: [AD-13]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
   /admin/exams/{id}/monitor:
     get:
       tags: [Exam]
@@ -1436,6 +1487,19 @@ paths:
       summary: 任务详情（脱敏）
       x-fr-ids: [FR-EXM-05, FR-SCR-04]
       x-page-ids: [MP-10, EX-03]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /exams/{id}/active-attempt:
+    get:
+      tags: [Exam]
+      operationId: getActiveExamAttempt
+      summary: 本场进行中尝试
+      x-fr-ids: [FR-ATT-02]
+      x-page-ids: [EX-03]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       responses:
@@ -1783,6 +1847,28 @@ paths:
                       data:
                         $ref: '#/components/schemas/ExportJob'
 
+  /admin/exports/{jobId}/download:
+    get:
+      tags: [Report]
+      operationId: downloadExportJob
+      summary: 下载已完成的成绩 Excel
+      x-fr-ids: [FR-REP-03]
+      x-page-ids: [AD-14]
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: xlsx 二进制
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
   /admin/outage-events:
     get:
       tags: [Outage]
@@ -1794,6 +1880,30 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/outage-events/detect:
+    post:
+      tags: [Outage]
+      operationId: detectOutageEvents
+      summary: 监控注入/检测故障并暂停受影响考试
+      description: 生产由健康探针调用。管理员不得用手工创建改写事实字段。
+      x-fr-ids: [FR-OPS-01]
+      x-page-ids: [AD-13]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                affectedExamIds:
+                  type: array
+                  items:
+                    type: string
+                reason:
+                  type: string
       responses:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
@@ -1888,6 +1998,10 @@ paths:
           schema:
             type: string
         - name: targetType
+          in: query
+          schema:
+            type: string
+        - name: targetId
           in: query
           schema:
             type: string
@@ -2044,9 +2158,13 @@ components:
         - SIM_ATTEMPT_ALREADY_ACTIVE
         - ATT_NO_REMAINING_OPPORTUNITY
         - ATT_EXAM_PAUSED
+        - ATT_NOT_STARTED
+        - ATT_WINDOW_CLOSED
+        - ATT_NOT_ASSIGNED
         - ANS_VERSION_CONFLICT
         - ANS_UNCONFIRMED_ANSWERS
         - ANS_ATTEMPT_TERMINATED
+        - ANS_IN_OBSERVATION
         - SCR_SUBMIT_IN_PROGRESS
         - OPS_PROPOSAL_STALE
         - OPS_NOT_AUTHORIZED
@@ -2331,6 +2449,9 @@ components:
           format: date-time
         remainingSeconds:
           type: integer
+        observationRemainingSeconds:
+          type: integer
+          description: Seconds until the 20s attempt observation window ends (expiresAt + 20s)
         serverNow:
           type: string
           format: date-time
@@ -2472,6 +2593,12 @@ components:
           $ref: '#/components/schemas/ExamRunStatus'
         lifecycle:
           $ref: '#/components/schemas/ExamLifecycle'
+        resultLocked:
+          type: boolean
+        inObservation:
+          type: boolean
+        observationRemainingSeconds:
+          type: integer
 
     ResultVisibility:
       type: object
@@ -2490,6 +2617,24 @@ components:
       properties:
         attemptId:
           type: string
+        examId:
+          type: string
+        lifecycle:
+          $ref: '#/components/schemas/ExamLifecycle'
+        resultState:
+          type: string
+          enum: [available, closing, locked, cancelled]
+        resultLocked:
+          type: boolean
+        submitted:
+          type: boolean
+        submittedAt:
+          type: [string, 'null']
+          format: date-time
+        neutralMessage:
+          type: [string, 'null']
+        cancelNotice:
+          type: [string, 'null']
         visibility:
           $ref: '#/components/schemas/ResultVisibility'
         totalScore:

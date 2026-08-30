@@ -27,8 +27,14 @@ public class AuditController {
     @GetMapping
     public ApiResponse<PageDto<Map<String, Object>>> listAuditLogs(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String actionType,
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) String targetId
     ) {
-        return ApiResponse.ok(auditService.list(page, pageSize), metaFactory.build());
+        return ApiResponse.ok(
+                auditService.list(page, pageSize, actionType, targetType, targetId),
+                metaFactory.build()
+        );
     }
 }

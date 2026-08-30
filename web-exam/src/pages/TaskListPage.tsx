@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiFetch, clearAuth, getStoredSession } from '../api/client'
-
-interface SessionDto {
-  displayName: string
-  employeeNo: string
-}
+import { apiFetch } from '../api/client'
+import { lifecycleLabel } from '../examLabels'
 
 type ExamTask = Record<string, unknown>
 
 export default function TaskListPage() {
-  const session = getStoredSession<SessionDto>()
   const [tasks, setTasks] = useState<ExamTask[]>([])
   const [examCodeFilter, setExamCodeFilter] = useState('')
   const [loading, setLoading] = useState(true)
@@ -43,26 +38,11 @@ export default function TaskListPage() {
     })
   }, [tasks, examCodeFilter])
 
-  function handleLogout() {
-    clearAuth()
-    window.location.href = '/login'
-  }
-
   return (
     <div className="page">
-      <header className="page-header with-actions">
-        <div>
-          <h1>考试任务</h1>
-          <p className="page-desc">EX-02 我的考试任务列表</p>
-        </div>
-        <div className="header-actions">
-          {session && (
-            <span className="user-label">{session.displayName}</span>
-          )}
-          <button type="button" className="btn-text" onClick={handleLogout}>
-            退出
-          </button>
-        </div>
+      <header className="page-header">
+        <h1>考试任务</h1>
+        <p className="page-desc">EX-02 我的考试任务列表</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -91,13 +71,19 @@ export default function TaskListPage() {
             const id = String(task.id ?? task.examId ?? '')
             const title = String(task.title ?? task.examCode ?? id)
             const examCode = String(task.examCode ?? id)
-            const lifecycle = String(task.lifecycle ?? task.status ?? '—')
+            const lifecycle = String(task.lifecycle ?? task.status ?? '')
+            const paused = task.runStatus === 'paused'
+            const locked = Boolean(task.resultLocked)
             return (
               <li key={id} className="card task-card">
                 <div className="task-info">
                   <h2>{title}</h2>
                   <p className="task-meta">考试码：{examCode}</p>
-                  <p className="task-meta">状态：{lifecycle}</p>
+                  <p className="task-meta">
+                    状态：{lifecycleLabel(lifecycle)}
+                    {paused ? ' · 已暂停' : ''}
+                    {locked ? ' · 结果锁定' : ''}
+                  </p>
                 </div>
                 <Link to={`/exams/${id}`} className="btn-primary btn-sm">
                   查看详情

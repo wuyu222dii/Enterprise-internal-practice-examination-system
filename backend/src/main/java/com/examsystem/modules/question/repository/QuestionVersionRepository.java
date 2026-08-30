@@ -24,6 +24,7 @@ public interface QuestionVersionRepository extends JpaRepository<QuestionVersion
             WHERE v.questionId IN (
                     SELECT q.id FROM Question q
                     WHERE q.questionBankId = :bankId
+                      AND q.status = 'active'
                       AND (:categoryId IS NULL OR q.categoryId = :categoryId)
                       AND (:knowledgePointId IS NULL OR q.knowledgePointId = :knowledgePointId)
                   )
@@ -45,7 +46,10 @@ public interface QuestionVersionRepository extends JpaRepository<QuestionVersion
      */
     @Query("""
             SELECT v.id FROM QuestionVersion v
-            WHERE v.questionId IN (SELECT q.id FROM Question q WHERE q.questionBankId = :bankId)
+            WHERE v.questionId IN (
+                    SELECT q.id FROM Question q
+                    WHERE q.questionBankId = :bankId AND q.status = 'active'
+                  )
               AND v.status = 'active'
               AND (:type IS NULL OR v.type = :type)
               AND v.versionNo = (

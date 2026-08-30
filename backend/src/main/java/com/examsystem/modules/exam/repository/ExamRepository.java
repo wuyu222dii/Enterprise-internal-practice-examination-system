@@ -11,4 +11,6 @@ public interface ExamRepository extends JpaRepository<Exam, String> {
     Page<Exam> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     List<Exam> findByLifecycleAndRunStatus(String lifecycle, String runStatus);
+
+    List<Exam> findByLifecycle(String lifecycle);
 }

@@ -30,6 +30,10 @@ export default function DepartmentsPage() {
   const [name, setName] = useState('')
   const [parentId, setParentId] = useState('dept_root')
   const [submitting, setSubmitting] = useState(false)
+  const [editingId, setEditingId] = useState('')
+  const [editName, setEditName] = useState('')
+  const [editParentId, setEditParentId] = useState('')
+  const [updatingId, setUpdatingId] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -66,13 +70,30 @@ export default function DepartmentsPage() {
     }
   }
 
+  async function patchDepartment(id: string, body: Record<string, string>) {
+    setUpdatingId(id)
+    setError('')
+    try {
+      await apiFetch(`/departments/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      setEditingId('')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新失败')
+    } finally {
+      setUpdatingId('')
+    }
+  }
+
   const flat = flattenDepartments(departments)
 
   return (
     <div className="page">
       <header className="page-header">
         <h1>部门管理</h1>
-        <p className="page-desc">AD-02 组织部门列表与创建</p>
+        <p className="page-desc">AD-02 组织部门：创建、改名、移动、停用</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -117,19 +138,95 @@ export default function DepartmentsPage() {
                 <th>路径</th>
                 <th>状态</th>
                 <th>员工数</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {flat.map((d) => (
                 <tr key={d.id}>
-                  <td>{d.path}</td>
-                  <td>{d.status}</td>
+                  <td>
+                    {editingId === d.id ? (
+                      <div className="inline-form">
+                        <input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          aria-label="部门名称"
+                        />
+                        <select
+                          value={editParentId}
+                          onChange={(e) => setEditParentId(e.target.value)}
+                          aria-label="上级部门"
+                        >
+                          {flat
+                            .filter((item) => item.id !== d.id)
+                            .map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.path}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    ) : (
+                      d.path
+                    )}
+                  </td>
+                  <td>{d.status === 'active' ? '启用' : '停用'}</td>
                   <td>{d.employeeCount}</td>
+                  <td>
+                    {editingId === d.id ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-text"
+                          disabled={updatingId === d.id}
+                          onClick={() =>
+                            patchDepartment(d.id, {
+                              name: editName,
+                              parentId: editParentId,
+                            })
+                          }
+                        >
+                          保存
+                        </button>
+                        <button type="button" className="btn-text" onClick={() => setEditingId('')}>
+                          取消
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-text"
+                          onClick={() => {
+                            setEditingId(d.id)
+                            setEditName(d.name)
+                            setEditParentId(d.parentId || 'dept_root')
+                          }}
+                        >
+                          改名/移动
+                        </button>
+                        {d.id !== 'dept_root' && (
+                          <button
+                            type="button"
+                            className="btn-text"
+                            disabled={updatingId === d.id}
+                            onClick={() =>
+                              patchDepartment(d.id, {
+                                status: d.status === 'active' ? 'disabled' : 'active',
+                              })
+                            }
+                          >
+                            {d.status === 'active' ? '停用' : '启用'}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
               {flat.length === 0 && (
                 <tr>
-                  <td colSpan={3}>暂无部门</td>
+                  <td colSpan={4}>暂无部门</td>
                 </tr>
               )}
             </tbody>

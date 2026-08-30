@@ -15,7 +15,6 @@ Page({
     loading: false,
     submitting: false,
     submitted: false,
-    result: null,
     error: '',
   },
 
@@ -257,9 +256,10 @@ Page({
           'Idempotency-Key': app.newIdempotencyKey(),
         },
         success: () => {
-          this.setData({ submitted: true })
           if (this.timer) clearInterval(this.timer)
-          this.loadResult()
+          wx.redirectTo({
+            url: `/pages/review/review?kind=mock&id=${this.data.attemptId}`,
+          })
         },
         fail: () => {
           wx.showToast({ title: '交卷失败', icon: 'none' })
@@ -271,15 +271,39 @@ Page({
     })
   },
 
-  loadResult() {
-    wx.request({
-      url: `${app.globalData.apiBase}/mock/attempts/${this.data.attemptId}/result`,
-      header: app.authHeader(),
+  onAbandon() {
+    if (this.data.submitting || this.data.submitted) return
+    wx.showModal({
+      title: '放弃模拟',
+      content: '放弃后不生成成绩，也无法查看评分。确定放弃吗？',
+      confirmText: '确定放弃',
+      confirmColor: '#DC2626',
       success: (res) => {
-        if (res.statusCode === 200 && res.data?.data) {
-          this.setData({ result: res.data.data })
+        if (res.confirm) {
+          this.doAbandon()
         }
       },
+    })
+  },
+
+  doAbandon() {
+    this.setData({ submitting: true })
+    wx.request({
+      url: `${app.globalData.apiBase}/mock/attempts/${this.data.attemptId}/abandon`,
+      method: 'POST',
+      header: app.authHeader(),
+      success: (res) => {
+        if (res.statusCode === 200) {
+          if (this.timer) clearInterval(this.timer)
+          wx.redirectTo({
+            url: `/pages/review/review?kind=mock&id=${this.data.attemptId}`,
+          })
+        } else {
+          wx.showToast({ title: res.data?.error?.message || '放弃失败', icon: 'none' })
+        }
+      },
+      fail: () => wx.showToast({ title: '网络错误', icon: 'none' }),
+      complete: () => this.setData({ submitting: false }),
     })
   },
 

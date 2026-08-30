@@ -12,7 +12,7 @@
     </view>
     <view wx:for="{{tasks}}" wx:key="id" class="card task-card" bindtap="onTaskTap" data-id="{{item.id}}">
       <view class="card-title">{{item.title || item.examCode || item.id}}</view>
-      <view class="card-meta">{{item.lifecycle || item.status || '—'}}{{item.runStatus === 'paused' ? ' · 已暂停' : ''}}</view>
+      <view class="card-meta">{{item.statusLine}}</view>
     </view>
   </view>
 </view>

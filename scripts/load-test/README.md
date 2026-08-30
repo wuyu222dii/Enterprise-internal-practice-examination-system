@@ -12,6 +12,9 @@
 docker exec -i exam_system-postgres-1 psql -U exam -d exam_system < scripts/load-test/seed-capacity.sql
 EXAM_ID=$(scripts/load-test/setup-capacity-exam.sh | tail -1)
 
+# 压测机一次性跑满 PERF-01~03（默认 VUS=500 DURATION=30m）
+EXAM_ID=$EXAM_ID scripts/load-test/run-full-perf.sh
+
 # PERF-01 500 VU × 30min
 EXAM_ID=$EXAM_ID k6 run scripts/load-test/perf01-sustained.js
 

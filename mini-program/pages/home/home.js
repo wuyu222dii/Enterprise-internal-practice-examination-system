@@ -1,6 +1,7 @@
 const MODE_LABEL = {
   sequential: '顺序练习',
   random: '随机练习',
+  targeted: '专项练习',
   wrongBook: '错题练习',
 }
 
@@ -16,7 +17,6 @@ Page({
     activeSession: null,
     modeLabel: '练习',
     loading: false,
-    starting: false,
     error: '',
   },
 
@@ -98,60 +98,27 @@ Page({
     }
   },
 
+  guardActive() {
+    if (this.data.activeSession) {
+      this.setData({ error: '已有进行中的练习，请先继续或结束' })
+      return true
+    }
+    return false
+  },
+
   onOpenConfig() {
-    wx.navigateTo({ url: '/pages/practice/practice?mode=topic' })
+    if (this.guardActive()) return
+    wx.navigateTo({ url: '/pages/practice/practice?mode=targeted' })
   },
 
   onWrongBook() {
-    if (this.data.activeSession) {
-      this.setData({ error: '已有进行中的练习，请先继续或结束' })
-      return
-    }
+    if (this.guardActive()) return
     wx.navigateTo({ url: '/pages/wrong-book/wrong-book' })
   },
 
   onStartMode(e) {
+    if (this.guardActive()) return
     const mode = e.currentTarget.dataset.mode
-    if (this.data.activeSession) {
-      this.setData({ error: '已有进行中的练习，请先继续或结束' })
-      return
-    }
-    const { bankId } = this.data
-    if (!bankId) {
-      this.setData({ error: '暂无开放练习的题库' })
-      return
-    }
-    this.setData({ starting: true, error: '' })
-    wx.request({
-      url: `${app.globalData.apiBase}/practice/sessions`,
-      method: 'POST',
-      header: {
-        ...app.authHeader(),
-        'Content-Type': 'application/json',
-      },
-      data: {
-        questionBankId: bankId,
-        mode,
-        questionCount: 10,
-      },
-      success: (res) => {
-        if ((res.statusCode === 201 || res.statusCode === 200) && res.data?.data?.id) {
-          wx.navigateTo({
-            url: `/pages/practice-session/practice-session?id=${res.data.data.id}`,
-          })
-        } else if (res.statusCode === 409) {
-          this.setData({ error: '已有进行中的练习，请先继续或结束' })
-          this.fetchActiveSession()
-        } else {
-          this.setData({ error: res.data?.error?.message || '开始练习失败' })
-        }
-      },
-      fail: () => {
-        this.setData({ error: '网络错误' })
-      },
-      complete: () => {
-        this.setData({ starting: false })
-      },
-    })
+    wx.navigateTo({ url: `/pages/practice/practice?mode=${mode}` })
   },
 })

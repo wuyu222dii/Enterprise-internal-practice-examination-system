@@ -25,6 +25,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -88,6 +89,21 @@ public class QuestionService {
         }
         questionBankRepository.save(bank);
         return bankToDto(bank);
+    }
+
+    public List<Map<String, Object>> listPracticeTaxonomy(String bankId) {
+        QuestionBank bank = requireActiveBank(bankId);
+        if (!bank.isPracticeEnabled()) {
+            throw BusinessException.of(ErrorCode.QST_BANK_DISABLED, "题库未开放练习", 422);
+        }
+        List<Map<String, Object>> categories = new ArrayList<>();
+        for (Category category : categoryRepository.findByQuestionBankIdOrderByNameAsc(bankId)) {
+            Map<String, Object> dto = categoryToDto(category);
+            dto.put("knowledgePoints", knowledgePointRepository.findByCategoryIdOrderByNameAsc(category.getId())
+                    .stream().map(this::kpToDto).toList());
+            categories.add(dto);
+        }
+        return categories;
     }
 
     public List<Map<String, Object>> listCategories(String bankId) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { apiFetch } from '../api/client'
+import { apiDownload, apiFetch } from '../api/client'
 
 interface ExamSummary {
   id: string
@@ -12,10 +12,20 @@ interface PagedExams {
   items: ExamSummary[]
 }
 
+interface MonitorCounts {
+  assignedCount?: number
+  completedCount?: number
+  passedCount?: number
+  failedCount?: number
+  officialValidCount?: number
+}
+
 interface ScoreSummary {
   examId: string
-  assignedCount: number
-  completedCount: number
+  assignedCount?: number
+  completedCount?: number
+  participation?: MonitorCounts
+  results?: MonitorCounts
 }
 
 interface ScoreRow {
@@ -109,13 +119,14 @@ export default function ScoresPage() {
     if (!examId) return
     setExportStatus('正在创建导出任务…')
     setError('')
+    setSuccess('')
     try {
       const { data } = await apiFetch<ExportJob>(`/admin/exams/${examId}/exports`, {
         method: 'POST',
         body: JSON.stringify({ format: 'xlsx' }),
       })
       setExportStatus(`任务 ${data.jobId} 状态：${data.status}`)
-      if (data.status === 'pending') {
+      if (data.status === 'pending' || data.status === 'completed') {
         await pollExportJob(data.jobId)
       }
     } catch (err) {
@@ -125,19 +136,21 @@ export default function ScoresPage() {
   }
 
   async function pollExportJob(jobId: string) {
-    for (let i = 0; i < 10; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 500))
+    for (let i = 0; i < 20; i++) {
       const { data } = await apiFetch<ExportJob>(`/admin/exports/${jobId}`)
       setExportStatus(`任务 ${data.jobId} 状态：${data.status}`)
       if (data.status === 'completed') {
-        setSuccess(data.downloadUrl ? `导出完成：${data.downloadUrl}` : '导出完成')
+        await apiDownload(`/admin/exports/${jobId}/download`, `export-${jobId}.xlsx`)
+        setSuccess('导出完成，已开始下载（含成绩与作答两个工作表）')
         return
       }
       if (data.status === 'failed') {
         setError('导出任务失败')
         return
       }
+      await new Promise((resolve) => setTimeout(resolve, 500))
     }
+    setError('导出仍在处理，请稍后重试下载')
   }
 
   async function handleVoid(e: FormEvent) {
@@ -166,11 +179,16 @@ export default function ScoresPage() {
     }
   }
 
+  const assigned = summary?.participation?.assignedCount ?? summary?.assignedCount ?? 0
+  const completed = summary?.participation?.completedCount ?? summary?.completedCount ?? 0
+  const passed = summary?.results?.passedCount ?? 0
+  const failed = summary?.results?.failedCount ?? 0
+
   return (
     <div className="page">
       <header className="page-header">
         <h1>成绩与报表</h1>
-        <p className="page-desc">AD-14 / AD-15 成绩汇总、导出与作废</p>
+        <p className="page-desc">AD-14 / AD-15 成绩汇总、导出下载与作废</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -200,12 +218,24 @@ export default function ScoresPage() {
       {summary && (
         <section className="card">
           <h2>成绩汇总</h2>
-          <dl className="detail-list">
-            <dt>应考人数</dt>
-            <dd>{summary.assignedCount}</dd>
-            <dt>已完成</dt>
-            <dd>{summary.completedCount}</dd>
-          </dl>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <div className="stat-label">应考人数</div>
+              <div className="stat-value">{assigned}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">已完成</div>
+              <div className="stat-value">{completed}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">通过</div>
+              <div className="stat-value">{passed}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">未通过</div>
+              <div className="stat-value">{failed}</div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -230,11 +260,14 @@ export default function ScoresPage() {
                 <tr key={row.attemptId}>
                   <td>{row.employeeId}</td>
                   <td>{row.attemptNumber}</td>
-                  <td>{row.attemptStatus}</td>
+                  <td>
+                    {row.attemptStatus}
+                    {row.voided ? '（已作废）' : ''}
+                  </td>
                   <td>{row.totalScore ?? '—'}</td>
                   <td>{row.maxScore ?? '—'}</td>
                   <td>
-                    <Link to={`/exams/${examId}/attempts/${row.attemptId}`}>详情</Link>
+                    <Link to={`/exams/${examId}/attempts/${row.attemptId}`}>详情 / 作废</Link>
                   </td>
                 </tr>
               ))}
@@ -245,7 +278,7 @@ export default function ScoresPage() {
 
       <section className="card">
         <h2>作废尝试</h2>
-        <form className="inline-form" onSubmit={handleVoid}>
+        <form className="stack-form" onSubmit={handleVoid}>
           <label>
             尝试
             <select

@@ -6,9 +6,12 @@
   --color-text: #2c3e50;
   --color-text-muted: #6b7c93;
   --color-border: #dce3eb;
-  --color-error: #c0392b;
-  --color-success: #1e7e34;
-  --sidebar-width: 220px;
+  --color-error: #dc2626;
+  --color-danger: #dc2626;
+  --color-warning: #d97706;
+  --color-success: #16a34a;
+  --sidebar-width: 232px;
+  --topbar-height: 54px;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
     'Microsoft YaHei', sans-serif;
 }
@@ -176,10 +179,11 @@ h2 {
 
 .nav-link {
   display: block;
-  padding: 8px 16px;
+  padding: 10px 16px;
   color: rgba(255, 255, 255, 0.85);
   text-decoration: none;
   transition: background 0.15s;
+  border-radius: 0;
 }
 
 .nav-link:hover {
@@ -204,7 +208,8 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
+  height: var(--topbar-height);
+  padding: 0 24px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
 }
@@ -324,11 +329,7 @@ textarea:focus {
   margin-bottom: 8px;
 }
 
-.stack-form textarea {
-  min-height: 120px;
-  resize: vertical;
-  line-height: 1.6;
-}
+.option-key-input {
   width: 56px;
   flex-shrink: 0;
 }
@@ -418,9 +419,10 @@ textarea:focus {
 
 .data-table th,
 .data-table td {
-  padding: 10px 12px;
+  padding: 8px 12px;
   text-align: left;
   border-bottom: 1px solid var(--color-border);
+  line-height: 1.4;
 }
 
 .data-table th {
@@ -453,4 +455,60 @@ textarea:focus {
 .stub-card p {
   color: var(--color-text-muted);
   margin-top: 16px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.stat-card {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--color-bg);
+}
+
+.stat-card .stat-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.stat-card .stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.rule-line {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.paper-item {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.paper-item pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  margin: 8px 0;
+}
+
+.checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 12px;
 }

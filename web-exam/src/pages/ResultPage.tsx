@@ -19,6 +19,12 @@ interface ResultItem {
 
 interface AttemptResult {
   attemptId: string
+  resultState?: 'available' | 'closing' | 'locked' | 'cancelled'
+  resultLocked?: boolean
+  submitted?: boolean
+  submittedAt?: string | null
+  neutralMessage?: string | null
+  cancelNotice?: string | null
   visibility: ResultVisibility
   totalScore?: number
   maxScore?: number
@@ -55,6 +61,7 @@ export default function ResultPage() {
 
   const visibility = result?.visibility
   const summaryVisible = visibility?.summaryVisible ?? false
+  const resultState = result?.resultState ?? 'available'
 
   return (
     <div className="page">
@@ -66,13 +73,44 @@ export default function ResultPage() {
       {error && <p className="form-error">{error}</p>}
       {loading && <p>加载中…</p>}
 
-      {result && !summaryVisible && (
-        <section className="card result-card">
-          <p className="stub-text">成绩尚未公开，请稍后再查看。</p>
+      {result && resultState === 'locked' && (
+        <section className="card result-card" role="status">
+          <h2>结果锁定，异常处理中，请等待企业通知</h2>
+          {result.submitted && (
+            <p className="stub-text">已记录提交事实，官方成绩暂不可见。</p>
+          )}
         </section>
       )}
 
-      {result && summaryVisible && (
+      {result && resultState === 'closing' && (
+        <section className="card result-card" role="status">
+          <h2>考试正在收尾</h2>
+          <p className="stub-text">
+            {result.neutralMessage || '正在确认平台运行状态，成绩与逐题内容暂不披露。'}
+          </p>
+          {result.submitted && (
+            <p className="stub-text">您的作答已提交。</p>
+          )}
+        </section>
+      )}
+
+      {result && resultState === 'cancelled' && (
+        <section className="card result-card" role="status">
+          <h2>考试已取消</h2>
+          <p className="stub-text">{result.cancelNotice || '本场考试已取消。'}</p>
+        </section>
+      )}
+
+      {result && resultState === 'available' && !summaryVisible && (
+        <section className="card result-card">
+          <p className="stub-text">成绩尚未公开，请稍后再查看。</p>
+          {result.submitted && (
+            <p className="stub-text">您的作答已提交。</p>
+          )}
+        </section>
+      )}
+
+      {result && resultState === 'available' && summaryVisible && (
         <section className="card result-card">
           <dl className="detail-list">
             <div className="detail-row">

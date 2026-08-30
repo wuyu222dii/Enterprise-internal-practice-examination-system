@@ -40,6 +40,7 @@ public class AuthService {
     private final SmsVerificationService smsVerificationService;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final WechatOpenIdResolver wechatOpenIdResolver;
     private final int maxFailedAttempts;
     private final int lockDurationMinutes;
 
@@ -49,6 +50,7 @@ public class AuthService {
             SmsVerificationService smsVerificationService,
             PasswordEncoder passwordEncoder,
             AuditService auditService,
+            WechatOpenIdResolver wechatOpenIdResolver,
             @Value("${exam.security.max-failed-attempts:5}") int maxFailedAttempts,
             @Value("${exam.security.lock-duration-minutes:15}") int lockDurationMinutes
     ) {
@@ -57,6 +59,7 @@ public class AuthService {
         this.smsVerificationService = smsVerificationService;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
+        this.wechatOpenIdResolver = wechatOpenIdResolver;
         this.maxFailedAttempts = maxFailedAttempts;
         this.lockDurationMinutes = lockDurationMinutes;
     }
@@ -238,8 +241,7 @@ public class AuthService {
 
     public Map<String, Object> resolveOpenId(ResolveOpenIdRequest request) {
         SecurityUtils.requirePrincipal();
-        String openId = "mp-" + Integer.toUnsignedString(request.code().hashCode(), 16);
-        return Map.of("openId", openId);
+        return Map.of("openId", wechatOpenIdResolver.resolve(request.code()));
     }
 
     private void registerFailedLogin(Employee employee) {

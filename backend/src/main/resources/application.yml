@@ -63,19 +63,37 @@ exam:
     bucket: ${EXAM_STORAGE_BUCKET:exam-files}
   sms:
     provider: ${EXAM_SMS_PROVIDER:mock}
+    webhook-url: ${EXAM_SMS_WEBHOOK_URL:}
+    aliyun:
+      access-key-id: ${EXAM_SMS_ALIYUN_ACCESS_KEY_ID:}
+      access-key-secret: ${EXAM_SMS_ALIYUN_ACCESS_KEY_SECRET:}
+      sign-name: ${EXAM_SMS_ALIYUN_SIGN_NAME:}
+      template-code: ${EXAM_SMS_ALIYUN_TEMPLATE_CODE:}
+    tencent:
+      secret-id: ${EXAM_SMS_TENCENT_SECRET_ID:}
+      secret-key: ${EXAM_SMS_TENCENT_SECRET_KEY:}
+      sdk-app-id: ${EXAM_SMS_TENCENT_SDK_APP_ID:}
+      sign-name: ${EXAM_SMS_TENCENT_SIGN_NAME:}
+      template-id: ${EXAM_SMS_TENCENT_TEMPLATE_ID:}
   retention:
     enabled: true
     import-confirm-days: 30
     import-file-days: 180
     export-hours: 24
     credential-hours: 24
+  observation:
+    window-seconds: 20
+  scheduler:
+    auto-submit-ms: 60000
   outage:
     probe-enabled: true
     observation-window-ms: 15000
     probe-interval-ms: 5000
     compensation-minutes: 15
   wechat:
-    mock-openid: true
+    mock-openid: ${EXAM_WECHAT_MOCK_OPENID:true}
+    app-id: ${EXAM_WECHAT_APP_ID:}
+    app-secret: ${EXAM_WECHAT_APP_SECRET:}
 
 management:
   endpoints:

@@ -72,6 +72,7 @@ public class ExamService {
     private final QuestionService questionService;
     private final ScoringService scoringService;
     private final AuditService auditService;
+    private final ExamLifecycleSupport lifecycleSupport;
 
     public ExamService(
             ExamRepository examRepository,
@@ -86,7 +87,8 @@ public class ExamService {
             DepartmentRepository departmentRepository,
             QuestionService questionService,
             ScoringService scoringService,
-            AuditService auditService
+            AuditService auditService,
+            ExamLifecycleSupport lifecycleSupport
     ) {
         this.examRepository = examRepository;
         this.publishedVersionRepository = publishedVersionRepository;
@@ -101,6 +103,7 @@ public class ExamService {
         this.questionService = questionService;
         this.scoringService = scoringService;
         this.auditService = auditService;
+        this.lifecycleSupport = lifecycleSupport;
     }
 
     public PageDto<Map<String, Object>> listAdminExams(int page, int pageSize) {
@@ -313,21 +316,106 @@ public class ExamService {
     public void cancelExam(String id, String employeeVisibleReason, String internalReason) {
         SecurityUtils.requireAdmin();
         Exam exam = getExam(id);
+        String previousLifecycle = exam.getLifecycle();
         exam.setLifecycle("cancelled");
+        exam.setEmployeeVisibleReason(employeeVisibleReason);
         examRepository.save(exam);
         auditService.log(
                 "exam.cancel",
                 "Exam",
                 id,
-                Map.of("lifecycle", "openForAttempt"),
-                Map.of("lifecycle", "cancelled", "reason", internalReason != null ? internalReason : ""),
+                Map.of("lifecycle", previousLifecycle),
+                Map.of(
+                        "lifecycle", "cancelled",
+                        "reason", internalReason != null ? internalReason : "",
+                        "employeeVisibleReason", employeeVisibleReason != null ? employeeVisibleReason : ""
+                ),
                 internalReason
         );
     }
 
     public Map<String, Object> getMonitor(String id) {
         SecurityUtils.requireAdmin();
-        return Map.of("examId", id, "attemptCount", attemptRepository.countByExamId(id));
+        Exam exam = getExam(id);
+        long assigned = exam.getPublishedVersionId() == null
+                ? 0
+                : assignmentRepository.countByPublishedVersionId(exam.getPublishedVersionId());
+        long inProgress = attemptRepository.countByExamIdAndAttemptStatus(id, "inProgress")
+                + attemptRepository.countByExamIdAndAttemptStatus(id, "submitting");
+        long completed = attemptRepository.countByExamIdAndAttemptStatus(id, "completed");
+        long voided = attemptRepository.countByExamIdAndAttemptStatus(id, "voided");
+        long startedEmployees = attemptRepository.countDistinctEmployeesByExamId(id);
+        long notStarted = Math.max(0, assigned - startedEmployees);
+        long passed = resultRepository.countOfficialPassedByExamId(id);
+        long failed = resultRepository.countOfficialFailedByExamId(id);
+
+        Map<String, Object> participation = new LinkedHashMap<>();
+        participation.put("assignedCount", assigned);
+        participation.put("notStartedCount", notStarted);
+        participation.put("inProgressCount", inProgress);
+        participation.put("completedCount", completed);
+        participation.put("voidedCount", voided);
+
+        Map<String, Object> results = new LinkedHashMap<>();
+        results.put("passedCount", passed);
+        results.put("failedCount", failed);
+        results.put("officialValidCount", passed + failed);
+
+        Map<String, Object> dto = new LinkedHashMap<>();
+        Instant now = Instant.now();
+        String lifecycle = lifecycleSupport.resolveLifecycle(exam, now);
+        dto.put("examId", id);
+        dto.put("runStatus", exam.getRunStatus());
+        dto.put("lifecycle", lifecycle);
+        dto.put("resultLocked", exam.isResultLocked());
+        dto.put("endBlockReason", "closing".equals(lifecycle) ? lifecycleSupport.wrappingBlockReason(exam, now) : null);
+        dto.put("closingRemainingSeconds", lifecycleSupport.closingRemainingSeconds(exam, now));
+        dto.put("attemptCount", attemptRepository.countByExamId(id));
+        dto.put("participation", participation);
+        dto.put("results", results);
+        dto.put("attentionAttempts", List.of());
+        return dto;
+    }
+
+    public Map<String, Object> getAdminAttemptView(String examId, String attemptId) {
+        SecurityUtils.requireAdmin();
+        ExamAttempt attempt = getAttempt(attemptId);
+        if (!examId.equals(attempt.getExamId())) {
+            throw BusinessException.of(ErrorCode.NOT_FOUND, "尝试不存在", 404);
+        }
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("attemptId", attempt.getId());
+        dto.put("examId", attempt.getExamId());
+        dto.put("employeeId", attempt.getEmployeeId());
+        dto.put("attemptNumber", attempt.getAttemptNumber());
+        dto.put("attemptStatus", attempt.getAttemptStatus());
+        dto.put("voided", attempt.isVoided());
+        dto.put("startedAt", attempt.getStartedAt());
+        dto.put("submittedAt", attempt.getSubmittedAt());
+        ExamResult result = resultRepository.findByExamAttemptId(attemptId).orElse(null);
+        if (result != null) {
+            dto.put("totalScore", result.getTotalScore());
+            dto.put("maxScore", result.getMaxScore());
+            dto.put("passed", result.getPassed());
+        }
+        Map<String, Object> paper = getPaper(attemptId);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) paper.getOrDefault("items", List.of());
+        Map<String, List<String>> answersByItem = new HashMap<>();
+        for (ExamAnswer answer : answerRepository.findByExamAttemptId(attemptId)) {
+            answersByItem.put(answer.getPaperItemId(), JsonHelper.toStringList(answer.getAnswerJson()));
+        }
+        for (Map<String, Object> item : items) {
+            String itemId = String.valueOf(item.get("itemId"));
+            item.put("employeeAnswer", answersByItem.getOrDefault(itemId, List.of()));
+            Object versionId = item.get("questionVersionId");
+            if (versionId != null) {
+                QuestionVersion version = questionService.requireVersion(String.valueOf(versionId));
+                item.put("standardAnswer", JsonHelper.toStringList(version.getStandardAnswer()));
+            }
+        }
+        dto.put("paper", paper);
+        return dto;
     }
 
     public List<Map<String, Object>> listExamTasks() {
@@ -355,7 +443,14 @@ public class ExamService {
         String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
         Page<ExamAttempt> result = attemptRepository.findByEmployeeIdOrderByCreatedAtDesc(
                 employeeId, PageRequest.of(page - 1, pageSize));
-        return new PageDto<>(result.getContent().stream().map(this::attemptSummaryToDto).toList(),
+        Set<String> examIds = result.getContent().stream()
+                .map(ExamAttempt::getExamId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, Exam> exams = examRepository.findAllById(examIds).stream()
+                .collect(Collectors.toMap(Exam::getId, exam -> exam));
+        return new PageDto<>(result.getContent().stream()
+                .map(attempt -> attemptSummaryToDto(attempt, exams.get(attempt.getExamId())))
+                .toList(),
                 result.getTotalElements(), page, pageSize);
     }
 
@@ -363,19 +458,16 @@ public class ExamService {
     public Map<String, Object> startAttempt(String examId) {
         String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
         Exam exam = getExam(examId);
+        Instant now = Instant.now();
         if ("paused".equals(exam.getRunStatus())) {
             throw BusinessException.of(ErrorCode.ATT_EXAM_PAUSED, "考试已暂停", 403);
         }
-        if (!"openForAttempt".equals(exam.getLifecycle())) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "考试未开放", 422);
+        String lifecycle = lifecycleSupport.resolveLifecycle(exam, now);
+        if ("notStarted".equals(lifecycle)) {
+            throw BusinessException.of(ErrorCode.ATT_NOT_STARTED, "考试尚未开始", 422);
         }
-
-        Instant now = Instant.now();
-        if (exam.getOpenStartAt() != null && now.isBefore(exam.getOpenStartAt())) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "考试尚未开始", 422);
-        }
-        if (exam.getStopAttemptAt() != null && now.isAfter(exam.getStopAttemptAt())) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "已超过开考截止时间", 422);
+        if (!"openForAttempt".equals(lifecycle)) {
+            throw BusinessException.of(ErrorCode.ATT_WINDOW_CLOSED, "当前不可开卷", 422);
         }
 
         List<String> activeStatuses = List.of("inProgress", "submitting");
@@ -388,15 +480,15 @@ public class ExamService {
         ExamPublishedVersion version = publishedVersionRepository.findById(exam.getPublishedVersionId())
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "发布版本不存在", 404));
 
+        assignmentRepository.findByPublishedVersionIdAndEmployeeId(version.getId(), employeeId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.ATT_NOT_ASSIGNED, "不在应考名单", 403));
+
         Map<String, Object> versionConfig = JsonHelper.toMap(version.getConfigJson());
         int maxAttempts = intValue(versionConfig.get("maxAttempts"), 1);
         long priorAttempts = attemptRepository.countByExamIdAndEmployeeId(examId, employeeId);
         if (priorAttempts >= maxAttempts) {
             throw BusinessException.of(ErrorCode.ATT_NO_REMAINING_OPPORTUNITY, "已无剩余考试次数", 422);
         }
-
-        assignmentRepository.findByPublishedVersionIdAndEmployeeId(version.getId(), employeeId)
-                .orElseThrow(() -> BusinessException.of(ErrorCode.SEC_FORBIDDEN, "不在应考名单", 403));
 
         int attemptNumber = (int) priorAttempts + 1;
         int durationMinutes = intValue(versionConfig.get("durationMinutes"), 60);
@@ -434,15 +526,20 @@ public class ExamService {
         ExamAttempt attempt = getAttempt(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
         Exam exam = getExam(attempt.getExamId());
+        Instant now = Instant.now();
+        String lifecycle = lifecycleSupport.resolveLifecycle(exam, now);
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attempt.getId());
         dto.put("examId", attempt.getExamId());
         dto.put("attemptStatus", attempt.getAttemptStatus());
         dto.put("attemptNumber", attempt.getAttemptNumber());
-        dto.put("timing", buildTiming(attempt));
-        dto.put("lifecycle", exam.getLifecycle());
+        dto.put("timing", buildTiming(attempt, now));
+        dto.put("lifecycle", lifecycle);
         dto.put("runStatus", exam.getRunStatus());
+        dto.put("resultLocked", exam.isResultLocked());
+        dto.put("inObservation", lifecycleSupport.isAttemptInObservation(attempt, now));
+        dto.put("observationRemainingSeconds", lifecycleSupport.observationRemainingSeconds(attempt.getExpiresAt(), now));
         dto.put("confirmedAnswers", listConfirmedAnswers(attemptId));
         return dto;
     }
@@ -468,6 +565,13 @@ public class ExamService {
         Exam exam = getExam(attempt.getExamId());
         if ("paused".equals(exam.getRunStatus())) {
             throw BusinessException.of(ErrorCode.ATT_EXAM_PAUSED, "考试已暂停", 403);
+        }
+        Instant now = Instant.now();
+        if (lifecycleSupport.isAttemptInObservation(attempt, now)) {
+            throw BusinessException.of(ErrorCode.ANS_IN_OBSERVATION, "答题时间已到，正在确认平台运行状态", 409);
+        }
+        if (lifecycleSupport.isAttemptExpired(attempt, now)) {
+            throw BusinessException.of(ErrorCode.ANS_ATTEMPT_TERMINATED, "尝试已到期", 409);
         }
 
         ExamAnswer answer = answerRepository.findByExamAttemptIdAndPaperItemId(attemptId, itemId)
@@ -500,6 +604,14 @@ public class ExamService {
         if ("completed".equals(attempt.getAttemptStatus())) {
             return;
         }
+        Exam exam = getExam(attempt.getExamId());
+        Instant now = Instant.now();
+        if ("paused".equals(exam.getRunStatus())) {
+            throw BusinessException.of(ErrorCode.ATT_EXAM_PAUSED, "考试已暂停", 403);
+        }
+        if (!"timeout".equals(reason) && lifecycleSupport.isAttemptInObservation(attempt, now)) {
+            throw BusinessException.of(ErrorCode.ANS_IN_OBSERVATION, "答题时间已到，正在确认平台运行状态", 409);
+        }
 
         List<ExamAnswer> answers = answerRepository.findByExamAttemptId(attemptId);
         boolean hasUnconfirmed = paperItemRepository.findByExamAttemptIdOrderByItemOrderAsc(attemptId).stream()
@@ -513,7 +625,19 @@ public class ExamService {
     }
 
     public List<String> findExpiredAttemptIds() {
-        return attemptRepository.findExpiredIdsExcludingPausedExams("inProgress", Instant.now());
+        Instant cutoff = Instant.now().minusSeconds(lifecycleSupport.windowSeconds());
+        return attemptRepository.findExpiredIdsExcludingPausedExams("inProgress", cutoff);
+    }
+
+    @Transactional
+    public void advanceExamLifecycles() {
+        Instant now = Instant.now();
+        for (Exam exam : examRepository.findByLifecycle("openForAttempt")) {
+            if ("ended".equals(lifecycleSupport.resolveLifecycle(exam, now))) {
+                exam.setLifecycle("ended");
+                examRepository.save(exam);
+            }
+        }
     }
 
     /**
@@ -528,7 +652,11 @@ public class ExamService {
             return;
         }
         Exam exam = getExam(attempt.getExamId());
+        Instant now = Instant.now();
         if ("paused".equals(exam.getRunStatus())) {
+            return;
+        }
+        if (!lifecycleSupport.isAttemptPastObservation(attempt, now)) {
             return;
         }
         finishAttempt(attempt, "timeout");
@@ -555,20 +683,40 @@ public class ExamService {
                 : Map.of();
         BigDecimal passingScore = decimalValue(versionConfig.get("passingScore"), BigDecimal.ZERO);
 
+        Instant now = Instant.now();
+        String lifecycle = lifecycleSupport.resolveLifecycle(exam, now);
+        String resultState = lifecycleSupport.resultState(exam, now);
+        boolean submitted = "completed".equals(attempt.getAttemptStatus()) || "voided".equals(attempt.getAttemptStatus());
+        boolean hideOfficial = !"available".equals(resultState);
         boolean resultLocked = exam.isResultLocked();
-        boolean summaryVisible = !resultLocked && ("completed".equals(attempt.getAttemptStatus()) || "voided".equals(attempt.getAttemptStatus()));
+        boolean summaryVisible = !hideOfficial && submitted;
         boolean perItemReviewAllowed = summaryVisible && boolValue(resultPolicy.get("perItemReviewAllowed"), true);
         boolean passingScoreVisible = summaryVisible && boolValue(resultPolicy.get("passingScoreVisible"), false);
         boolean passConclusionVisible = summaryVisible && boolValue(resultPolicy.get("passConclusionVisible"), false);
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attemptId);
+        dto.put("examId", exam.getId());
+        dto.put("lifecycle", lifecycle);
+        dto.put("resultState", resultState);
+        dto.put("resultLocked", resultLocked);
+        dto.put("submitted", submitted);
+        dto.put("submittedAt", attempt.getSubmittedAt());
         dto.put("visibility", Map.of(
                 "summaryVisible", summaryVisible,
                 "passingScoreVisible", passingScoreVisible,
                 "passConclusionVisible", passConclusionVisible,
                 "perItemReviewAllowed", perItemReviewAllowed
         ));
+        if ("locked".equals(resultState)) {
+            dto.put("neutralMessage", "结果锁定，异常处理中，请等待企业通知");
+        } else if ("closing".equals(resultState)) {
+            dto.put("neutralMessage", "考试正在收尾，正在确认平台运行状态");
+        } else if ("cancelled".equals(resultState)) {
+            dto.put("cancelNotice", exam.getEmployeeVisibleReason() != null && !exam.getEmployeeVisibleReason().isBlank()
+                    ? exam.getEmployeeVisibleReason()
+                    : "考试已取消");
+        }
         if (result != null && summaryVisible) {
             dto.put("totalScore", result.getTotalScore());
             dto.put("maxScore", result.getMaxScore());
@@ -700,9 +848,14 @@ public class ExamService {
     private void createAssignments(String publishedVersionId, Map<String, Object> assignments) {
         String mode = assignments.getOrDefault("mode", "allActive").toString();
         if ("selected".equals(mode)) {
-            List<String> employeeIds = stringList(assignments.get("employeeIds"));
-            for (int from = 0; from < employeeIds.size(); from += BATCH_SIZE) {
-                List<String> chunk = employeeIds.subList(from, Math.min(from + BATCH_SIZE, employeeIds.size()));
+            List<String> employeeIds = new ArrayList<>(stringList(assignments.get("employeeIds")));
+            for (String employeeNo : stringList(assignments.get("employeeNos"))) {
+                employeeRepository.findByEmployeeNo(employeeNo.trim())
+                        .ifPresent(employee -> employeeIds.add(employee.getId()));
+            }
+            List<String> uniqueIds = employeeIds.stream().distinct().toList();
+            for (int from = 0; from < uniqueIds.size(); from += BATCH_SIZE) {
+                List<String> chunk = uniqueIds.subList(from, Math.min(from + BATCH_SIZE, uniqueIds.size()));
                 Map<String, Employee> found = employeeRepository.findAllById(chunk).stream()
                         .collect(Collectors.toMap(Employee::getId, employee -> employee));
                 List<Employee> active = new ArrayList<>(chunk.size());
@@ -716,6 +869,19 @@ public class ExamService {
                     }
                 }
                 saveAssignmentBatch(publishedVersionId, active);
+            }
+            return;
+        }
+        if ("byDepartment".equals(mode)) {
+            for (String departmentId : stringList(assignments.get("departmentIds"))) {
+                int pageIndex = 0;
+                Page<Employee> page;
+                do {
+                    page = employeeRepository.searchEmployees(
+                            departmentId, "active", null, PageRequest.of(pageIndex, BATCH_SIZE));
+                    saveAssignmentBatch(publishedVersionId, page.getContent());
+                    pageIndex++;
+                } while (page.hasNext());
             }
             return;
         }
@@ -768,7 +934,17 @@ public class ExamService {
     private long countPlannedAssignees(Map<String, Object> assignments) {
         String mode = assignments.getOrDefault("mode", "allActive").toString();
         if ("selected".equals(mode)) {
-            return stringList(assignments.get("employeeIds")).size();
+            long ids = stringList(assignments.get("employeeIds")).size();
+            long nos = stringList(assignments.get("employeeNos")).size();
+            return Math.max(ids, nos) == 0 ? 0 : Math.max(ids + nos, 1);
+        }
+        if ("byDepartment".equals(mode)) {
+            long total = 0;
+            for (String departmentId : stringList(assignments.get("departmentIds"))) {
+                total += employeeRepository.searchEmployees(departmentId, "active", null, PageRequest.of(0, 1))
+                        .getTotalElements();
+            }
+            return total;
         }
         return employeeRepository.searchEmployees(null, "active", null, PageRequest.of(0, 1)).getTotalElements();
     }
@@ -943,16 +1119,17 @@ public class ExamService {
         response.put("attemptNumber", attempt.getAttemptNumber());
         response.put("attemptStatus", attempt.getAttemptStatus());
         response.put("paper", buildPaperFromItems(attempt.getId(), items));
-        response.put("timing", buildTiming(attempt));
+        response.put("timing", buildTiming(attempt, Instant.now()));
         return response;
     }
 
-    private Map<String, Object> buildTiming(ExamAttempt attempt) {
+    private Map<String, Object> buildTiming(ExamAttempt attempt, Instant now) {
         Map<String, Object> timing = new HashMap<>();
         timing.put("startedAt", attempt.getStartedAt());
         timing.put("expiresAt", attempt.getExpiresAt());
-        timing.put("remainingSeconds", Math.max(0, Duration.between(Instant.now(), attempt.getExpiresAt()).getSeconds()));
-        timing.put("serverNow", Instant.now());
+        timing.put("remainingSeconds", lifecycleSupport.remainingSeconds(attempt.getExpiresAt(), now));
+        timing.put("observationRemainingSeconds", lifecycleSupport.observationRemainingSeconds(attempt.getExpiresAt(), now));
+        timing.put("serverNow", now);
         return timing;
     }
 
@@ -962,26 +1139,46 @@ public class ExamService {
     }
 
     private Map<String, Object> examToDto(Exam exam) {
+        Instant now = Instant.now();
+        String lifecycle = lifecycleSupport.resolveLifecycle(exam, now);
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", exam.getId());
         dto.put("title", exam.getTitle());
         dto.put("description", exam.getDescription());
-        dto.put("lifecycle", exam.getLifecycle());
+        dto.put("lifecycle", lifecycle);
         dto.put("runStatus", exam.getRunStatus());
         dto.put("openStartAt", exam.getOpenStartAt());
         dto.put("stopAttemptAt", exam.getStopAttemptAt());
         dto.put("publishedVersionId", exam.getPublishedVersionId());
         dto.put("resultLocked", exam.isResultLocked());
+        dto.put("resultState", lifecycleSupport.resultState(exam, now));
+        dto.put("endBlockReason", "closing".equals(lifecycle) ? lifecycleSupport.wrappingBlockReason(exam, now) : null);
+        dto.put("closingRemainingSeconds", lifecycleSupport.closingRemainingSeconds(exam, now));
+        if ("cancelled".equals(lifecycle)) {
+            dto.put("employeeVisibleReason", exam.getEmployeeVisibleReason());
+        }
         return dto;
     }
 
-    private Map<String, Object> attemptSummaryToDto(ExamAttempt attempt) {
+    private Map<String, Object> attemptSummaryToDto(ExamAttempt attempt, Exam exam) {
+        Instant now = Instant.now();
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attempt.getId());
         dto.put("examId", attempt.getExamId());
         dto.put("attemptStatus", attempt.getAttemptStatus());
         dto.put("attemptNumber", attempt.getAttemptNumber());
         dto.put("startedAt", attempt.getStartedAt());
+        dto.put("submittedAt", attempt.getSubmittedAt());
+        if (exam != null) {
+            dto.put("examTitle", exam.getTitle());
+            dto.put("lifecycle", lifecycleSupport.resolveLifecycle(exam, now));
+            dto.put("runStatus", exam.getRunStatus());
+            dto.put("resultLocked", exam.isResultLocked());
+            dto.put("resultState", lifecycleSupport.resultState(exam, now));
+            if ("cancelled".equals(lifecycleSupport.resolveLifecycle(exam, now))) {
+                dto.put("employeeVisibleReason", exam.getEmployeeVisibleReason());
+            }
+        }
         return dto;
     }
 

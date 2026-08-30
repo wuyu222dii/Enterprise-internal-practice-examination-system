@@ -1,8 +1,8 @@
 <view class="page">
-  <view class="header">
-    <view class="header-title">专项练习</view>
-    <view class="header-sub">选择题库与题量后开始，不计入正式成绩</view>
-  </view>
+    <view class="header">
+      <view class="header-title">{{modeTitle}}</view>
+      <view class="header-sub">{{mode === 'targeted' ? '专项练习 · 按分类/知识点筛选' : '选择题库与题量后开始'}}，不计入正式成绩</view>
+    </view>
   <view class="body">
     <view wx:if="{{loading}}" class="stub">加载中…</view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
@@ -26,13 +26,26 @@
           <view class="field-input picker-value">{{selectedBankName || '请选择题库'}}</view>
         </picker>
       </view>
+      <view wx:if="{{mode === 'targeted'}}" class="field">
+        <text class="field-label">分类</text>
+        <picker mode="selector" range="{{categoryNames}}" bindchange="onCategoryChange">
+          <view class="field-input picker-value">{{selectedCategoryName}}</view>
+        </picker>
+      </view>
+      <view wx:if="{{mode === 'targeted'}}" class="field">
+        <text class="field-label">知识点</text>
+        <picker mode="selector" range="{{kpNames}}" bindchange="onKpChange">
+          <view class="field-input picker-value">{{selectedKpName}}</view>
+        </picker>
+      </view>
       <view class="field">
         <text class="field-label">题量</text>
-        <picker mode="selector" range="{{['10题','20题','50题']}}" bindchange="onCountChange">
+        <picker mode="selector" range="{{countLabels}}" bindchange="onCountChange">
           <view class="field-input picker-value">{{questionCount}} 题</view>
         </picker>
       </view>
       <button class="btn-primary" loading="{{starting}}" bindtap="onStart">开始练习</button>
+      <view class="card-meta summary-line">本题量 {{questionCount}} 题{{mode === 'targeted' ? ' · ' + selectedCategoryName + ' · ' + selectedKpName : ''}}</view>
     </view>
   </view>
 </view>

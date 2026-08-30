@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { apiFetch, getToken } from '../api/client'
-
-const API_BASE = 'http://localhost:8088/api/v1'
+import { API_BASE, apiFetch, getToken } from '../api/client'
 
 interface QuestionBankDto {
   id: string

@@ -1,9 +1,12 @@
+const { lifecycleLabel, examStatusHint } = require('../../utils/examLabels')
 const app = getApp()
 
 Page({
   data: {
     examId: '',
     exam: null,
+    lifecycleText: '',
+    statusHint: '',
     loading: false,
     error: '',
   },
@@ -29,7 +32,12 @@ Page({
       header: app.authHeader(),
       success: (res) => {
         if (res.statusCode === 200 && res.data?.data) {
-          this.setData({ exam: res.data.data })
+          const exam = res.data.data
+          this.setData({
+            exam,
+            lifecycleText: lifecycleLabel(exam.lifecycle),
+            statusHint: examStatusHint(exam),
+          })
         } else {
           this.setData({ error: res.data?.error?.message || '加载失败' })
         }
@@ -41,17 +49,5 @@ Page({
         this.setData({ loading: false })
       },
     })
-  },
-
-  lifecycleLabel(lifecycle) {
-    const map = {
-      draft: '草稿',
-      notStarted: '未开始',
-      openForAttempt: '可开考',
-      closing: '即将结束',
-      ended: '已结束',
-      cancelled: '已取消',
-    }
-    return map[lifecycle] || lifecycle || '—'
   },
 })

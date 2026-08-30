@@ -1,3 +1,4 @@
+const { examStatusLine } = require('../../utils/examLabels')
 const app = getApp()
 
 Page({
@@ -25,6 +26,7 @@ Page({
           const tasks = res.data.data.map((t) => ({
             ...t,
             id: t.id || t.examId,
+            statusLine: examStatusLine(t),
           }))
           this.setData({ tasks })
         } else {

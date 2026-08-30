@@ -56,3 +56,26 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Playwright login smoke
         run: npm run test:e2e
+
+  mini-program-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert WeChat project files exist
+        run: |
+          test -f mini-program/project.config.json
+          test -f mini-program/app.json
+          test -f mini-program/app.js
+          echo "GitHub Actions has no WeChat DevTools; this job only gates required files."
+
+  load-test-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert PERF scripts exist
+        run: |
+          test -f scripts/load-test/run-full-perf.sh
+          test -f scripts/load-test/perf01-sustained.js
+          test -f scripts/load-test/perf02-burst.js
+          test -f scripts/load-test/perf03-expiry.js
+

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 
@@ -8,14 +8,71 @@ interface QuestionBankSummary {
   status: string
 }
 
+interface DepartmentDto {
+  id: string
+  name: string
+  path: string
+  status: string
+  children?: DepartmentDto[]
+}
+
+interface EmployeeSummary {
+  id: string
+  employeeNo: string
+  displayName: string
+  status: string
+}
+
+interface PagedEmployees {
+  items: EmployeeSummary[]
+}
+
+interface RuleLine {
+  bankId: string
+  type: string
+  drawCount: number
+  scorePerQuestion: number
+}
+
+interface PreflightIssue {
+  code: string
+  message: string
+  ruleLineIndex?: number
+  required?: number
+  available?: number
+}
+
 interface PreflightResult {
   examId: string
   ready: boolean
   passed: boolean
-  issues: Array<{ code: string; message: string }>
+  issues: PreflightIssue[]
 }
 
 const STEPS = ['基本信息', '抽题规则', '应考人员', '可见性', '复核发布'] as const
+
+const TYPE_OPTIONS = [
+  { value: 'singleChoice', label: '单选' },
+  { value: 'multipleChoice', label: '多选' },
+  { value: 'trueFalse', label: '判断' },
+  { value: 'essay', label: '解答题' },
+]
+
+function flattenDepartments(nodes: DepartmentDto[]): DepartmentDto[] {
+  const result: DepartmentDto[] = []
+  function walk(list: DepartmentDto[]) {
+    for (const node of list) {
+      result.push(node)
+      if (node.children?.length) walk(node.children)
+    }
+  }
+  walk(nodes)
+  return result
+}
+
+function emptyRule(bankId: string): RuleLine {
+  return { bankId, type: 'singleChoice', drawCount: 5, scorePerQuestion: 1 }
+}
 
 export default function ExamWizardPage() {
   const { id } = useParams<{ id: string }>()
@@ -25,27 +82,47 @@ export default function ExamWizardPage() {
   const [step, setStep] = useState(0)
   const [examId, setExamId] = useState(id ?? '')
   const [banks, setBanks] = useState<QuestionBankSummary[]>([])
+  const [departments, setDepartments] = useState<DepartmentDto[]>([])
+  const [employees, setEmployees] = useState<EmployeeSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [preflightIssues, setPreflightIssues] = useState<string[]>([])
+  const [preflightIssues, setPreflightIssues] = useState<PreflightIssue[]>([])
 
   const [title, setTitle] = useState('')
   const [openStartAt, setOpenStartAt] = useState('')
-  const [bankId, setBankId] = useState('')
-  const [drawCount, setDrawCount] = useState(5)
+  const [ruleLines, setRuleLines] = useState<RuleLine[]>([emptyRule('')])
   const [durationMinutes, setDurationMinutes] = useState(60)
+  const [maxAttempts, setMaxAttempts] = useState(1)
+  const [passingScore, setPassingScore] = useState(3)
   const [assigneeMode, setAssigneeMode] = useState('allActive')
+  const [departmentIds, setDepartmentIds] = useState<string[]>([])
+  const [employeeIds, setEmployeeIds] = useState<string[]>([])
+  const [employeeNosText, setEmployeeNosText] = useState('')
   const [showScore, setShowScore] = useState(true)
   const [showAnswers, setShowAnswers] = useState(false)
 
-  const loadBanks = useCallback(async () => {
+  const flatDepartments = useMemo(() => flattenDepartments(departments), [departments])
+  const totalMaxScore = ruleLines.reduce(
+    (sum, line) => sum + Number(line.drawCount || 0) * Number(line.scorePerQuestion || 0),
+    0,
+  )
+
+  const loadLookups = useCallback(async () => {
     try {
-      const { data } = await apiFetch<QuestionBankSummary[]>('/question-banks')
-      const active = data.filter((bank) => bank.status === 'active')
+      const [banksRes, deptRes, empRes] = await Promise.all([
+        apiFetch<QuestionBankSummary[]>('/question-banks'),
+        apiFetch<DepartmentDto[]>('/departments?format=tree'),
+        apiFetch<PagedEmployees>('/employees?status=active&page=1&pageSize=50'),
+      ])
+      const active = banksRes.data.filter((bank) => bank.status === 'active')
       setBanks(active)
+      setDepartments(deptRes.data)
+      setEmployees(empRes.data.items)
       if (active.length > 0) {
-        setBankId((current) => current || active[0].id)
+        setRuleLines((current) =>
+          current.map((line) => ({ ...line, bankId: line.bankId || active[0].id })),
+        )
       }
     } catch {
       // shown during wizard
@@ -53,8 +130,8 @@ export default function ExamWizardPage() {
   }, [])
 
   useEffect(() => {
-    loadBanks()
-  }, [loadBanks])
+    loadLookups()
+  }, [loadLookups])
 
   async function ensureExam(): Promise<string> {
     if (examId) return examId
@@ -64,6 +141,34 @@ export default function ExamWizardPage() {
     })
     setExamId(data.id)
     return data.id
+  }
+
+  function updateRule(index: number, patch: Partial<RuleLine>) {
+    setRuleLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)))
+  }
+
+  function assigneePayload() {
+    if (assigneeMode === 'byDepartment') {
+      return { mode: 'byDepartment', departmentIds }
+    }
+    if (assigneeMode === 'selected') {
+      const employeeNos = employeeNosText
+        .split(/[\s,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+      return { mode: 'selected', employeeIds, employeeNos }
+    }
+    return { mode: 'allActive' }
+  }
+
+  function assigneeLabel() {
+    if (assigneeMode === 'byDepartment') {
+      return `指定部门（${departmentIds.length} 个）`
+    }
+    if (assigneeMode === 'selected') {
+      return `指定人员（${employeeIds.length} 人 + 工号列表）`
+    }
+    return '全部在职员工'
   }
 
   async function handleStepSubmit(e: FormEvent) {
@@ -81,32 +186,32 @@ export default function ExamWizardPage() {
           method: 'PUT',
           body: JSON.stringify({
             title,
-            openStartAt: openStartAt || new Date().toISOString(),
+            openStartAt: openStartAt ? new Date(openStartAt).toISOString() : new Date().toISOString(),
           }),
         })
         setStep(1)
       } else if (step === 1) {
+        if (ruleLines.length === 0 || ruleLines.some((line) => !line.bankId || line.drawCount < 1)) {
+          setError('请至少配置一条有效抽题规则')
+          return
+        }
         await apiFetch(`/admin/exams/${currentExamId}/wizard/rules`, {
           method: 'PUT',
           body: JSON.stringify({
             durationMinutes,
-            maxAttempts: 1,
-            passingScore: 3,
-            ruleLines: [
-              {
-                bankId,
-                type: 'singleChoice',
-                drawCount,
-                scorePerQuestion: 1,
-              },
-            ],
+            maxAttempts,
+            passingScore,
+            ruleLines: ruleLines.map((line, index) => ({
+              ...line,
+              lineOrder: index + 1,
+            })),
           }),
         })
         setStep(2)
       } else if (step === 2) {
         await apiFetch(`/admin/exams/${currentExamId}/wizard/assignees`, {
           method: 'PUT',
-          body: JSON.stringify({ mode: assigneeMode }),
+          body: JSON.stringify(assigneePayload()),
         })
         setStep(3)
       } else if (step === 3) {
@@ -127,7 +232,7 @@ export default function ExamWizardPage() {
         )
 
         if (!preflight.ready) {
-          setPreflightIssues(preflight.issues.map((issue) => issue.message))
+          setPreflightIssues(preflight.issues)
           return
         }
 
@@ -177,7 +282,7 @@ export default function ExamWizardPage() {
           ))}
         </div>
 
-        <form className="inline-form" onSubmit={handleStepSubmit} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+        <form className="stack-form" onSubmit={handleStepSubmit}>
           {step === 0 && (
             <>
               <label>
@@ -203,52 +308,185 @@ export default function ExamWizardPage() {
 
           {step === 1 && (
             <>
-              <label>
-                题库
-                <select value={bankId} onChange={(e) => setBankId(e.target.value)} required>
-                  {banks.length === 0 ? (
-                    <option value="">暂无可用题库</option>
-                  ) : (
-                    banks.map((bank) => (
-                      <option key={bank.id} value={bank.id}>
-                        {bank.name}
-                      </option>
-                    ))
+              {ruleLines.map((line, index) => (
+                <div className="rule-line" key={`rule-${index}`}>
+                  <div className="form-row">
+                    <label>
+                      题库
+                      <select
+                        value={line.bankId}
+                        onChange={(e) => updateRule(index, { bankId: e.target.value })}
+                        required
+                      >
+                        {banks.length === 0 ? (
+                          <option value="">暂无可用题库</option>
+                        ) : (
+                          banks.map((bank) => (
+                            <option key={bank.id} value={bank.id}>
+                              {bank.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </label>
+                    <label>
+                      题型
+                      <select
+                        value={line.type}
+                        onChange={(e) => updateRule(index, { type: e.target.value })}
+                      >
+                        {TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      抽题数
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={line.drawCount}
+                        onChange={(e) => updateRule(index, { drawCount: Number(e.target.value) })}
+                        required
+                      />
+                    </label>
+                    <label>
+                      每题分值
+                      <input
+                        type="number"
+                        min={0.5}
+                        step={0.5}
+                        value={line.scorePerQuestion}
+                        onChange={(e) =>
+                          updateRule(index, { scorePerQuestion: Number(e.target.value) })
+                        }
+                        required
+                      />
+                    </label>
+                  </div>
+                  {ruleLines.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn-text"
+                      onClick={() => setRuleLines((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      删除此规则
+                    </button>
                   )}
-                </select>
-              </label>
-              <label>
-                单选题抽题数量
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={drawCount}
-                  onChange={(e) => setDrawCount(Number(e.target.value))}
-                  required
-                />
-              </label>
-              <label>
-                考试时长（分钟）
-                <input
-                  type="number"
-                  min={5}
-                  max={300}
-                  value={durationMinutes}
-                  onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                  required
-                />
-              </label>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() =>
+                  setRuleLines((prev) => [...prev, emptyRule(banks[0]?.id || '')])
+                }
+              >
+                添加规则行
+              </button>
+              <p className="field-hint">卷面满分 {totalMaxScore} 分（抽题数 × 分值之和）</p>
+              <div className="form-row">
+                <label>
+                  考试时长（分钟）
+                  <input
+                    type="number"
+                    min={5}
+                    max={300}
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                    required
+                  />
+                </label>
+                <label>
+                  最多尝试次数
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={maxAttempts}
+                    onChange={(e) => setMaxAttempts(Number(e.target.value))}
+                    required
+                  />
+                </label>
+                <label>
+                  及格分
+                  <input
+                    type="number"
+                    min={0}
+                    value={passingScore}
+                    onChange={(e) => setPassingScore(Number(e.target.value))}
+                    required
+                  />
+                </label>
+              </div>
             </>
           )}
 
           {step === 2 && (
-            <label>
-              应考人员范围
-              <select value={assigneeMode} onChange={(e) => setAssigneeMode(e.target.value)}>
-                <option value="allActive">全部在职员工</option>
-              </select>
-            </label>
+            <>
+              <label>
+                应考人员范围
+                <select value={assigneeMode} onChange={(e) => setAssigneeMode(e.target.value)}>
+                  <option value="allActive">全部在职员工</option>
+                  <option value="byDepartment">指定部门</option>
+                  <option value="selected">指定人员 / 工号</option>
+                </select>
+              </label>
+              {assigneeMode === 'byDepartment' && (
+                <div className="checkbox-list">
+                  {flatDepartments.map((dept) => (
+                    <label key={dept.id} className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={departmentIds.includes(dept.id)}
+                        onChange={(e) =>
+                          setDepartmentIds((prev) =>
+                            e.target.checked
+                              ? [...prev, dept.id]
+                              : prev.filter((id) => id !== dept.id),
+                          )
+                        }
+                      />
+                      {dept.path}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {assigneeMode === 'selected' && (
+                <>
+                  <div className="checkbox-list">
+                    {employees.map((employee) => (
+                      <label key={employee.id} className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={employeeIds.includes(employee.id)}
+                          onChange={(e) =>
+                            setEmployeeIds((prev) =>
+                              e.target.checked
+                                ? [...prev, employee.id]
+                                : prev.filter((id) => id !== employee.id),
+                            )
+                          }
+                        />
+                        {employee.displayName}（{employee.employeeNo}）
+                      </label>
+                    ))}
+                  </div>
+                  <label>
+                    额外工号（每行一个，可与上方勾选合并）
+                    <textarea
+                      rows={4}
+                      value={employeeNosText}
+                      onChange={(e) => setEmployeeNosText(e.target.value)}
+                      placeholder="EMP001&#10;EMP002"
+                    />
+                  </label>
+                </>
+              )}
+            </>
           )}
 
           {step === 3 && (
@@ -277,26 +515,51 @@ export default function ExamWizardPage() {
               <dl className="detail-list">
                 <dt>标题</dt>
                 <dd>{title || '—'}</dd>
-                <dt>题库</dt>
-                <dd>{banks.find((b) => b.id === bankId)?.name ?? bankId}</dd>
-                <dt>抽题数</dt>
-                <dd>{drawCount} 道单选题</dd>
-                <dt>时长</dt>
-                <dd>{durationMinutes} 分钟</dd>
+                <dt>时长 / 次数 / 及格分</dt>
+                <dd>
+                  {durationMinutes} 分钟 · {maxAttempts} 次 · {passingScore} 分
+                </dd>
                 <dt>应考人员</dt>
-                <dd>{assigneeMode === 'allActive' ? '全部在职员工' : assigneeMode}</dd>
+                <dd>{assigneeLabel()}</dd>
               </dl>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>行</th>
+                    <th>题库</th>
+                    <th>题型</th>
+                    <th>抽题</th>
+                    <th>分值</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ruleLines.map((line, index) => (
+                    <tr key={`review-${index}`}>
+                      <td>{index + 1}</td>
+                      <td>{banks.find((b) => b.id === line.bankId)?.name ?? line.bankId}</td>
+                      <td>{TYPE_OPTIONS.find((item) => item.value === line.type)?.label ?? line.type}</td>
+                      <td>{line.drawCount}</td>
+                      <td>{line.scorePerQuestion}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
               {preflightIssues.length > 0 && (
                 <ul className="form-error">
-                  {preflightIssues.map((issue) => (
-                    <li key={issue}>{issue}</li>
+                  {preflightIssues.map((issue, index) => (
+                    <li key={`${issue.code}-${index}`}>
+                      {issue.message}
+                      {issue.required != null &&
+                        `（需要 ${issue.required}，可用 ${issue.available ?? 0}）`}
+                      {issue.ruleLineIndex != null && ` · 规则行 ${issue.ruleLineIndex + 1}`}
+                    </li>
                   ))}
                 </ul>
               )}
             </>
           )}
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <div className="form-actions" style={{ gap: 12 }}>
             {step > 0 && (
               <button
                 type="button"

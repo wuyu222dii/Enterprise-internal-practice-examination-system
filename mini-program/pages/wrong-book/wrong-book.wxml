@@ -1,19 +1,40 @@
-<view class="container">
-  <view class="card">
-    <view class="title">错题本</view>
-    <view class="subtitle">MP-04 练习错题汇总</view>
-
-    <view wx:if="{{loading}}">加载中…</view>
+<view class="page">
+  <view class="header">
+    <view class="header-title">错题本</view>
+    <view class="header-sub">独立错题练习 · 当前 {{total}} 题，不计入正式成绩</view>
+  </view>
+  <view class="body">
+    <view wx:if="{{loading}}" class="stub">加载中…</view>
     <view wx:if="{{error}}" class="error">{{error}}</view>
 
-    <view wx:if="{{!loading && entries.length === 0}}" class="stub">暂无错题记录</view>
-
-    <view wx:for="{{entries}}" wx:key="id" class="entry-item">
-      <view class="entry-title">题目 {{item.questionVersionId}}</view>
-      <view class="entry-meta">状态：{{item.status}} · {{item.updatedAt}}</view>
+    <view wx:if="{{!loading && entries.length === 0}}" class="card">
+      <view class="card-title">暂无错题记录</view>
     </view>
 
-    <view wx:if="{{total > 0}}" class="summary">共 {{total}} 条错题</view>
+    <view wx:if="{{entries.length > 0}}" class="card">
+      <view class="card-title">题量摘要</view>
+      <view class="card-meta">将从错题本抽取 {{questionCount}} 题开练</view>
+      <view class="field">
+        <text class="field-label">题量</text>
+        <picker mode="selector" range="{{countLabels}}" bindchange="onCountChange">
+          <view class="field-input picker-value">{{questionCount}} 题</view>
+        </picker>
+      </view>
+      <button class="btn-primary" loading="{{starting}}" bindtap="onStart">从错题本开练</button>
+    </view>
+
+    <view wx:for="{{entries}}" wx:key="id" class="card">
+      <view class="card-title">{{item.stem || '题目 ' + item.questionVersionId}}</view>
+      <view class="card-meta">{{item.typeLabel}} · {{item.status}}</view>
+      <button
+        class="btn-ghost"
+        size="mini"
+        data-bank-id="{{item.questionBankId}}"
+        bindtap="onStart"
+      >
+        开练本题库
+      </button>
+    </view>
 
     <navigator url="/pages/home/home" open-type="switchTab" class="back-link">返回练习</navigator>
   </view>

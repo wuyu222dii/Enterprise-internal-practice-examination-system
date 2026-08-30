@@ -1,0 +1,28 @@
+<view class="page">
+  <view class="header">
+    <view class="header-title">{{title}}</view>
+    <view class="header-sub">{{subtitle}}</view>
+    <view class="header-sub" wx:if="{{scoreText}}">{{scoreText}}</view>
+  </view>
+  <view class="body">
+    <view wx:if="{{loading}}" class="stub">加载中…</view>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <view wx:if="{{abandoned}}" class="card">
+      <view class="card-title">已放弃</view>
+      <view class="card-meta">本次模拟不生成评分，也无法查看逐题解析。</view>
+    </view>
+    <view wx:for="{{items}}" wx:key="itemId" class="card review-item">
+      <view class="review-head">
+        <text>第 {{item.order}} 题</text>
+        <text class="{{item.isCorrect ? 'result-pass' : 'result-fail'}}">
+          {{item.isCorrect ? '正确' : '错误'}}
+        </text>
+      </view>
+      <view class="stem">{{item.stem}}</view>
+      <view class="review-line">你的答案：{{item.userAnswerText}}</view>
+      <view class="review-line">参考答案：{{item.standardAnswerText}}</view>
+      <view class="review-line" wx:if="{{item.explanation}}">解析：{{item.explanation}}</view>
+    </view>
+    <button class="btn-primary" bindtap="onBack">返回</button>
+  </view>
+</view>

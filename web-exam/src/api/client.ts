@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:8088/api/v1'
+export const API_BASE =
+  import.meta.env.VITE_API_BASE || 'http://localhost:8088/api/v1'
 const TOKEN_KEY = 'exam_token'
 const SESSION_KEY = 'exam_session'
 
@@ -38,10 +39,12 @@ export function getStoredSession<T>(): T | null {
 
 export class ApiError extends Error {
   status: number
+  code?: string
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -67,13 +70,15 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     let message = `请求失败 (${response.status})`
+    let code: string | undefined
     try {
       const body = await response.json()
       message = body?.error?.message ?? body?.message ?? message
+      code = body?.error?.code
     } catch {
       // ignore parse errors
     }
-    throw new ApiError(message, response.status)
+    throw new ApiError(message, response.status, code)
   }
 
   if (response.status === 204) {

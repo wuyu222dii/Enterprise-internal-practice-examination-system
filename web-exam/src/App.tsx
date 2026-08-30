@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { getStoredSession, getToken } from './api/client'
+import ExamShell from './layout/ExamShell'
 import ChangePasswordPage from './pages/ChangePasswordPage'
 import ExamBriefPage from './pages/ExamBriefPage'
 import ExamWorkbenchPage from './pages/ExamWorkbenchPage'
@@ -22,7 +23,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (session?.mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />
   }
-  return children
+  return <ExamShell>{children}</ExamShell>
 }
 
 export default function App() {

@@ -20,6 +20,8 @@ spring:
 exam:
   security:
     session-ttl-hours: 1
+  observation:
+    window-seconds: 20
   scheduler:
     auto-submit-ms: 3600000
   storage:

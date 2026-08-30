@@ -59,11 +59,7 @@ public class ReportService {
 
     public Map<String, Object> getScoreSummary(String examId) {
         SecurityUtils.requireAdmin();
-        return Map.of(
-                "examId", examId,
-                "assignedCount", attemptRepository.countByExamId(examId),
-                "completedCount", attemptRepository.countByExamIdAndAttemptStatus(examId, "completed")
-        );
+        return examService.getMonitor(examId);
     }
 
     public PageDto<Map<String, Object>> listEmployeeScores(String examId, int page, int pageSize) {
@@ -84,12 +80,7 @@ public class ReportService {
     }
 
     public Map<String, Object> getAttemptDetail(String examId, String attemptId) {
-        SecurityUtils.requireAdmin();
-        ExamAttempt attempt = examService.getAttempt(attemptId);
-        if (!examId.equals(attempt.getExamId())) {
-            throw BusinessException.of(ErrorCode.NOT_FOUND, "尝试不存在", 404);
-        }
-        return attemptRow(attempt);
+        return examService.getAdminAttemptView(examId, attemptId);
     }
 
     @Transactional

@@ -13,4 +13,6 @@ public interface ExamAssignmentRepository extends JpaRepository<ExamAssignment, 
     Page<ExamAssignment> findByPublishedVersionIdOrderByEmployeeNoSnapshotAsc(String publishedVersionId, Pageable pageable);
     Optional<ExamAssignment> findByPublishedVersionIdAndEmployeeId(String publishedVersionId, String employeeId);
     List<ExamAssignment> findByEmployeeId(String employeeId);
+
+    long countByPublishedVersionId(String publishedVersionId);
 }

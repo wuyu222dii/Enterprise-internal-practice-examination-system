@@ -11,12 +11,9 @@
 
     <view class="field">
       <text class="label">状态</text>
-      <text>{{exam.lifecycle}}</text>
+      <text>{{lifecycleText}}{{exam.runStatus === 'paused' ? ' · 已暂停' : ''}}</text>
     </view>
-    <view class="field">
-      <text class="label">运行状态</text>
-      <text>{{exam.runStatus || '—'}}</text>
-    </view>
+    <view class="notice" wx:if="{{statusHint}}">{{statusHint}}</view>
     <view class="field" wx:if="{{exam.openStartAt}}">
       <text class="label">开放时间</text>
       <text>{{exam.openStartAt}}</text>

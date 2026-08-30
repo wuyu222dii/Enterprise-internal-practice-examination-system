@@ -192,8 +192,9 @@ Page({
       method: 'POST',
       header: app.authHeader(),
       success: () => {
-        this.setData({ finished: true })
-        wx.showToast({ title: '练习已完成', icon: 'success' })
+        wx.redirectTo({
+          url: `/pages/review/review?kind=practice&id=${this.data.sessionId}`,
+        })
       },
     })
   },

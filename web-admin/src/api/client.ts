@@ -1,4 +1,5 @@
-const API_BASE = 'http://localhost:8088/api/v1'
+export const API_BASE =
+  import.meta.env.VITE_API_BASE || 'http://localhost:8088/api/v1'
 const TOKEN_KEY = 'exam_admin_token'
 const SESSION_KEY = 'exam_admin_session'
 
@@ -81,4 +82,26 @@ export async function apiFetch<T>(
   }
 
   return response.json() as Promise<ApiResponse<T>>
+}
+
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const token = getToken()
+  const headers = new Headers()
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  const response = await fetch(`${API_BASE}${path}`, { headers })
+  if (response.status === 401) {
+    clearAuth()
+  }
+  if (!response.ok) {
+    throw new ApiError(`下载失败 (${response.status})`, response.status)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }

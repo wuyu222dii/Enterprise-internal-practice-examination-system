@@ -45,10 +45,23 @@ public class AuditService {
         auditLogRepository.save(log);
     }
 
-    public PageDto<Map<String, Object>> list(int page, int pageSize) {
-        Page<AuditLog> result = auditLogRepository.findAllByOrderByOccurredAtDesc(PageRequest.of(page - 1, pageSize));
+    public PageDto<Map<String, Object>> list(int page, int pageSize, String actionType, String targetType, String targetId) {
+        Page<AuditLog> result = auditLogRepository.search(
+                blankToEmpty(actionType),
+                blankToEmpty(targetType),
+                blankToEmpty(targetId),
+                PageRequest.of(page - 1, pageSize)
+        );
         List<Map<String, Object>> items = result.getContent().stream().map(this::toDto).toList();
         return new PageDto<>(items, result.getTotalElements(), page, pageSize);
+    }
+
+    public PageDto<Map<String, Object>> list(int page, int pageSize) {
+        return list(page, pageSize, null, null, null);
+    }
+
+    private static String blankToEmpty(String value) {
+        return value == null || value.isBlank() ? "" : value;
     }
 
     private Map<String, Object> toDto(AuditLog log) {
@@ -60,6 +73,13 @@ public class AuditService {
         dto.put("targetType", log.getTargetType());
         dto.put("targetId", log.getTargetId());
         dto.put("reason", log.getReason());
+        dto.put("requestId", log.getRequestId());
+        if (log.getBeforeJson() != null && !log.getBeforeJson().isBlank()) {
+            dto.put("before", JsonHelper.parse(log.getBeforeJson()));
+        }
+        if (log.getAfterJson() != null && !log.getAfterJson().isBlank()) {
+            dto.put("after", JsonHelper.parse(log.getAfterJson()));
+        }
         return dto;
     }
 }

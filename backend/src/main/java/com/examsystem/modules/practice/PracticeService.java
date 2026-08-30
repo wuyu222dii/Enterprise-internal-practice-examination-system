@@ -72,6 +72,10 @@ public class PracticeService {
                 .map(this::bankToDto).toList();
     }
 
+    public List<Map<String, Object>> listTaxonomy(String bankId) {
+        return questionService.listPracticeTaxonomy(bankId);
+    }
+
     public Map<String, Object> getActiveSession() {
         String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
         return sessionRepository.findByEmployeeIdAndStatus(employeeId, "in_progress")
@@ -129,6 +133,17 @@ public class PracticeService {
         PracticeSession session = getSessionEntity(id);
         SecurityUtils.requireOwnerOrAdmin(session.getEmployeeId());
         return sessionToDto(session);
+    }
+
+    public Map<String, Object> getReview(String id) {
+        PracticeSession session = getSessionEntity(id);
+        SecurityUtils.requireOwnerOrAdmin(session.getEmployeeId());
+        if (!"finished".equals(session.getStatus())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "练习尚未完成，无法复盘", 422);
+        }
+        Map<String, Object> dto = sessionToDto(session);
+        dto.put("items", buildReviewItems(session.getId()));
+        return dto;
     }
 
     @Transactional
@@ -306,12 +321,50 @@ public class PracticeService {
                 }).toList();
     }
 
+    private List<Map<String, Object>> buildReviewItems(String sessionId) {
+        List<PracticeSessionItem> items = sessionItemRepository.findByPracticeSessionIdOrderByItemOrderAsc(sessionId);
+        Map<String, QuestionVersion> versions = questionService.requireVersions(items.stream()
+                .map(PracticeSessionItem::getQuestionVersionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        Map<String, PracticeAnswer> answers = new HashMap<>();
+        for (PracticeAnswer answer : answerRepository.findByPracticeSessionId(sessionId)) {
+            answers.put(answer.getQuestionVersionId(), answer);
+        }
+        return items.stream()
+                .map(item -> {
+                    QuestionVersion version = versions.get(item.getQuestionVersionId());
+                    PracticeAnswer answer = answers.get(item.getQuestionVersionId());
+                    Map<String, Object> itemDto = new HashMap<>();
+                    itemDto.put("itemId", item.getId());
+                    itemDto.put("order", item.getItemOrder());
+                    itemDto.put("questionVersionId", item.getQuestionVersionId());
+                    itemDto.put("type", version.getType());
+                    itemDto.put("stem", version.getStem());
+                    itemDto.put("options", JsonHelper.toMapList(version.getOptionsJson()));
+                    itemDto.put("userAnswer", answer == null ? List.of() : JsonHelper.toStringList(answer.getAnswerJson()));
+                    itemDto.put("standardAnswer", JsonHelper.toStringList(version.getStandardAnswer()));
+                    itemDto.put("explanation", version.getExplanation());
+                    itemDto.put("isCorrect", answer != null && answer.isCorrect());
+                    return itemDto;
+                }).toList();
+    }
+
     private Map<String, Object> wrongBookToDto(WrongBookEntry entry) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", entry.getId());
         dto.put("questionVersionId", entry.getQuestionVersionId());
         dto.put("status", entry.getStatus());
         dto.put("updatedAt", entry.getUpdatedAt());
+        try {
+            QuestionVersion version = questionService.requireVersion(entry.getQuestionVersionId());
+            Question question = questionService.requireQuestion(version.getQuestionId());
+            dto.put("stem", version.getStem());
+            dto.put("type", version.getType());
+            dto.put("questionBankId", question.getQuestionBankId());
+        } catch (RuntimeException ignored) {
+            dto.put("stem", "");
+            dto.put("type", "");
+        }
         return dto;
     }
 }

@@ -224,14 +224,51 @@ public class MockService {
     public Map<String, Object> getResult(String attemptId) {
         MockAttempt attempt = getAttemptEntity(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
-        MockResult result = resultRepository.findByMockAttemptId(attemptId)
-                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "结果不存在", 404));
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attemptId);
+        dto.put("status", attempt.getStatus());
+        if ("terminated".equals(attempt.getStatus())) {
+            dto.put("abandoned", true);
+            dto.put("items", List.of());
+            return dto;
+        }
+        MockResult result = resultRepository.findByMockAttemptId(attemptId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "结果不存在", 404));
         dto.put("totalScore", result.getTotalScore());
         dto.put("maxScore", result.getMaxScore());
         dto.put("detail", JsonHelper.parse(result.getDetailJson()));
+        dto.put("items", buildReviewItems(attempt.getId()));
         return dto;
+    }
+
+    private List<Map<String, Object>> buildReviewItems(String attemptId) {
+        List<MockPaperItem> items = paperItemRepository.findByMockAttemptIdOrderByItemOrderAsc(attemptId);
+        Map<String, QuestionVersion> versions = questionService.requireVersions(items.stream()
+                .map(MockPaperItem::getQuestionVersionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new)));
+        Map<String, List<String>> answersByItem = new HashMap<>();
+        for (MockAnswer answer : answerRepository.findByMockAttemptId(attemptId)) {
+            answersByItem.put(answer.getPaperItemId(), JsonHelper.toStringList(answer.getAnswerJson()));
+        }
+        List<Map<String, Object>> review = new ArrayList<>();
+        for (MockPaperItem item : items) {
+            QuestionVersion version = versions.get(item.getQuestionVersionId());
+            List<String> userAnswer = answersByItem.getOrDefault(item.getId(), List.of());
+            boolean correct = scoringService.isCorrect(version.getType(), version.getStandardAnswer(), userAnswer);
+            Map<String, Object> row = new HashMap<>();
+            row.put("itemId", item.getId());
+            row.put("order", item.getItemOrder());
+            row.put("type", version.getType());
+            row.put("stem", version.getStem());
+            row.put("options", JsonHelper.toMapList(version.getOptionsJson()));
+            row.put("userAnswer", userAnswer);
+            row.put("standardAnswer", JsonHelper.toStringList(version.getStandardAnswer()));
+            row.put("explanation", version.getExplanation());
+            row.put("isCorrect", correct);
+            row.put("score", item.getScore());
+            review.add(row);
+        }
+        return review;
     }
 
     public PageDto<Map<String, Object>> listRecords(int page, int pageSize) {
@@ -318,6 +355,8 @@ public class MockService {
         dto.put("durationMinutes", attempt.getDurationMinutes());
         dto.put("startedAt", attempt.getStartedAt());
         dto.put("expiresAt", attempt.getExpiresAt());
+        dto.put("terminatedAt", attempt.getTerminatedAt());
+        dto.put("terminateReason", attempt.getTerminateReason());
         return dto;
     }
 }

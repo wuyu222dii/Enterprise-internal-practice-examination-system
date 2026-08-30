@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 
@@ -6,20 +6,32 @@ interface QuestionDto {
   id: string
   questionBankId: string
   categoryId: string
+  knowledgePointId?: string | null
   status: string
   latestVersionId?: string
 }
 
 interface QuestionVersionDto {
   id: string
+  questionId?: string
+  versionNo?: number
   type: string
   stem: string
   difficulty: string
+  options?: OptionRow[]
+  standardAnswer?: string[]
+  createdAt?: string
 }
 
 interface CategoryDto {
   id: string
   name: string
+}
+
+interface KnowledgePointDto {
+  id: string
+  name: string
+  categoryId?: string
 }
 
 interface PagedQuestions {
@@ -67,10 +79,12 @@ export default function QuestionsPage() {
   const { bankId } = useParams<{ bankId: string }>()
   const [questions, setQuestions] = useState<QuestionDto[]>([])
   const [categories, setCategories] = useState<CategoryDto[]>([])
+  const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePointDto[]>([])
   const [versions, setVersions] = useState<Record<string, QuestionVersionDto>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [categoryId, setCategoryId] = useState('')
+  const [knowledgePointId, setKnowledgePointId] = useState('')
   const [type, setType] = useState('singleChoice')
   const [stem, setStem] = useState('')
   const [optionRows, setOptionRows] = useState<OptionRow[]>(defaultOptions('singleChoice'))
@@ -78,9 +92,29 @@ export default function QuestionsPage() {
   const [referenceAnswer, setReferenceAnswer] = useState('')
   const [difficulty, setDifficulty] = useState('medium')
   const [submitting, setSubmitting] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newKpName, setNewKpName] = useState('')
+  const [reviseQuestionId, setReviseQuestionId] = useState('')
+  const [historyQuestionId, setHistoryQuestionId] = useState('')
+  const [historyVersions, setHistoryVersions] = useState<QuestionVersionDto[]>([])
+  const [busyQuestionId, setBusyQuestionId] = useState('')
+  const categoryIdRef = useRef('')
 
   const isEssay = type === 'essay'
   const isMultiple = type === 'multipleChoice'
+  categoryIdRef.current = categoryId
+
+  const loadKnowledgePoints = useCallback(async (selectedCategoryId: string) => {
+    if (!selectedCategoryId) {
+      setKnowledgePoints([])
+      return
+    }
+    const { data } = await apiFetch<KnowledgePointDto[]>(
+      `/categories/${selectedCategoryId}/knowledge-points`,
+    )
+    setKnowledgePoints(data)
+    setKnowledgePointId((prev) => (data.some((kp) => kp.id === prev) ? prev : ''))
+  }, [])
 
   const load = useCallback(async () => {
     if (!bankId) return
@@ -93,7 +127,9 @@ export default function QuestionsPage() {
       ])
       setQuestions(questionsRes.data.items)
       setCategories(categoriesRes.data)
-      setCategoryId((prev) => prev || categoriesRes.data[0]?.id || '')
+      const nextCategory = categoriesRes.data[0]?.id || ''
+      setCategoryId((prev) => prev || nextCategory)
+      await loadKnowledgePoints(categoryIdRef.current || nextCategory)
 
       const versionMap: Record<string, QuestionVersionDto> = {}
       await Promise.all(
@@ -112,7 +148,7 @@ export default function QuestionsPage() {
     } finally {
       setLoading(false)
     }
-  }, [bankId])
+  }, [bankId, loadKnowledgePoints])
 
   useEffect(() => {
     load()
@@ -148,18 +184,51 @@ export default function QuestionsPage() {
     }
   }
 
-  async function handleCreateCategory() {
-    if (!bankId) return
+  function versionPayload() {
+    return {
+      type,
+      stem: stem.trim(),
+      options: isEssay ? [] : optionRows,
+      standardAnswer: isEssay ? [referenceAnswer.trim()] : answerKeys,
+      difficulty,
+    }
+  }
+
+  async function handleCreateCategory(e: FormEvent) {
+    e.preventDefault()
+    if (!bankId || !newCategoryName.trim()) return
     setError('')
     try {
       const { data } = await apiFetch<CategoryDto>(`/question-banks/${bankId}/categories`, {
         method: 'POST',
-        body: JSON.stringify({ name: '默认分类' }),
+        body: JSON.stringify({ name: newCategoryName.trim() }),
       })
       setCategories((prev) => [...prev, data])
       setCategoryId(data.id)
+      setNewCategoryName('')
+      await loadKnowledgePoints(data.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建分类失败')
+    }
+  }
+
+  async function handleCreateKnowledgePoint(e: FormEvent) {
+    e.preventDefault()
+    if (!categoryId || !newKpName.trim()) return
+    setError('')
+    try {
+      const { data } = await apiFetch<KnowledgePointDto>(
+        `/categories/${categoryId}/knowledge-points`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ name: newKpName.trim() }),
+        },
+      )
+      setKnowledgePoints((prev) => [...prev, data])
+      setKnowledgePointId(data.id)
+      setNewKpName('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建知识点失败')
     }
   }
 
@@ -185,28 +254,85 @@ export default function QuestionsPage() {
     setSubmitting(true)
     setError('')
     try {
-      await apiFetch(`/question-banks/${bankId}/questions`, {
-        method: 'POST',
-        body: JSON.stringify({
-          categoryId,
-          version: {
-            type,
-            stem: stem.trim(),
-            options: isEssay ? [] : optionRows,
-            standardAnswer: isEssay ? [referenceAnswer.trim()] : answerKeys,
-            difficulty,
-          },
-        }),
-      })
+      if (reviseQuestionId) {
+        await apiFetch(`/questions/${reviseQuestionId}/versions`, {
+          method: 'POST',
+          body: JSON.stringify(versionPayload()),
+        })
+        setReviseQuestionId('')
+      } else {
+        await apiFetch(`/question-banks/${bankId}/questions`, {
+          method: 'POST',
+          body: JSON.stringify({
+            categoryId,
+            knowledgePointId: knowledgePointId || undefined,
+            version: versionPayload(),
+          }),
+        })
+      }
       setStem('')
       setReferenceAnswer('')
       setOptionRows(defaultOptions(type))
       setAnswerKeys(type === 'essay' ? [] : ['A'])
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建失败')
+      setError(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function startRevise(question: QuestionDto) {
+    const current = versions[question.id]
+    if (!current) return
+    setReviseQuestionId(question.id)
+    setCategoryId(question.categoryId)
+    setKnowledgePointId(question.knowledgePointId || '')
+    setType(current.type)
+    setStem(current.stem)
+    setDifficulty(current.difficulty)
+    setOptionRows(
+      current.type === 'essay' ? [] : (current.options?.length ? current.options : defaultOptions(current.type)),
+    )
+    if (current.type === 'essay') {
+      setAnswerKeys([])
+      setReferenceAnswer(current.standardAnswer?.[0] ?? '')
+    } else {
+      setAnswerKeys(current.standardAnswer ?? ['A'])
+      setReferenceAnswer('')
+    }
+    await loadKnowledgePoints(question.categoryId)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function toggleQuestionStatus(question: QuestionDto) {
+    const next = question.status === 'active' ? 'disabled' : 'active'
+    if (next === 'disabled' && !window.confirm('停用后不再进入新练习、模拟和未发布组卷，已发布考试不受影响。确认停用？')) {
+      return
+    }
+    setBusyQuestionId(question.id)
+    setError('')
+    try {
+      await apiFetch(`/questions/${question.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: next }),
+      })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新状态失败')
+    } finally {
+      setBusyQuestionId('')
+    }
+  }
+
+  async function showHistory(questionId: string) {
+    setError('')
+    try {
+      const { data } = await apiFetch<QuestionVersionDto[]>(`/questions/${questionId}/versions`)
+      setHistoryQuestionId(questionId)
+      setHistoryVersions(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载版本失败')
     }
   }
 
@@ -215,30 +341,92 @@ export default function QuestionsPage() {
       <header className="page-header">
         <h1>题目管理</h1>
         <p className="page-desc">
-          AD-06/07 题库题目列表 · <Link to="/question-banks">返回题库</Link>
+          AD-06/07 分类、知识点、停用与不可变新版本 · <Link to="/question-banks">返回题库</Link>
         </p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
 
       <section className="card">
-        <h2>新建题目</h2>
-        {categories.length === 0 ? (
-          <p>
-            暂无分类，请先{' '}
-            <button type="button" className="btn-text" onClick={handleCreateCategory}>
-              创建默认分类
+        <h2>分类与知识点</h2>
+        <form className="inline-form" onSubmit={handleCreateCategory}>
+          <label>
+            新分类名称
+            <input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="例如：安全生产"
+              required
+            />
+          </label>
+          <button type="submit" className="btn-secondary">
+            创建分类
+          </button>
+        </form>
+        {categories.length > 0 && (
+          <form className="inline-form" onSubmit={handleCreateKnowledgePoint}>
+            <label>
+              所属分类
+              <select
+                value={categoryId}
+                onChange={(e) => {
+                  setCategoryId(e.target.value)
+                  void loadKnowledgePoints(e.target.value)
+                }}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              新知识点
+              <input
+                value={newKpName}
+                onChange={(e) => setNewKpName(e.target.value)}
+                placeholder="例如：消防器材"
+                required
+              />
+            </label>
+            <button type="submit" className="btn-secondary">
+              创建知识点
             </button>
-          </p>
+          </form>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>{reviseQuestionId ? '发布新版本（原版本只读保留）' : '新建题目'}</h2>
+        {categories.length === 0 ? (
+          <p>暂无分类，请先在上方创建分类。</p>
         ) : (
           <form className="stack-form" onSubmit={handleCreate}>
             <div className="form-row">
               <label>
                 分类
-                <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <select
+                  value={categoryId}
+                  onChange={(e) => {
+                    setCategoryId(e.target.value)
+                    void loadKnowledgePoints(e.target.value)
+                  }}
+                >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                知识点
+                <select value={knowledgePointId} onChange={(e) => setKnowledgePointId(e.target.value)}>
+                  <option value="">未指定</option>
+                  {knowledgePoints.map((kp) => (
+                    <option key={kp.id} value={kp.id}>
+                      {kp.name}
                     </option>
                   ))}
                 </select>
@@ -331,8 +519,21 @@ export default function QuestionsPage() {
 
             <div className="form-actions">
               <button type="submit" className="btn-primary" disabled={submitting}>
-                {submitting ? '创建中…' : '创建'}
+                {submitting ? '保存中…' : reviseQuestionId ? '发布新版本' : '创建'}
               </button>
+              {reviseQuestionId && (
+                <button
+                  type="button"
+                  className="btn-text"
+                  onClick={() => {
+                    setReviseQuestionId('')
+                    setStem('')
+                    setReferenceAnswer('')
+                  }}
+                >
+                  取消修订
+                </button>
+              )}
             </div>
           </form>
         )}
@@ -346,11 +547,11 @@ export default function QuestionsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>ID</th>
                 <th>题型</th>
                 <th>题干</th>
                 <th>难度</th>
                 <th>状态</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -358,11 +559,26 @@ export default function QuestionsPage() {
                 const v = versions[q.id]
                 return (
                   <tr key={q.id}>
-                    <td>{q.id}</td>
                     <td>{TYPE_LABELS[v?.type ?? ''] ?? v?.type ?? '—'}</td>
                     <td className="stem-cell">{v?.stem ?? '—'}</td>
                     <td>{DIFFICULTY_LABELS[v?.difficulty ?? ''] ?? v?.difficulty ?? '—'}</td>
-                    <td>{q.status === 'active' ? '启用' : q.status}</td>
+                    <td>{q.status === 'active' ? '启用' : '停用'}</td>
+                    <td>
+                      <button type="button" className="btn-text" onClick={() => void startRevise(q)}>
+                        修订新版本
+                      </button>
+                      <button type="button" className="btn-text" onClick={() => void showHistory(q.id)}>
+                        版本历史
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-text"
+                        disabled={busyQuestionId === q.id}
+                        onClick={() => void toggleQuestionStatus(q)}
+                      >
+                        {q.status === 'active' ? '停用' : '启用'}
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
@@ -373,6 +589,34 @@ export default function QuestionsPage() {
               )}
             </tbody>
           </table>
+        )}
+        {historyQuestionId && (
+          <div className="rule-line" style={{ marginTop: 16 }}>
+            <h3>版本历史 · {historyQuestionId}</h3>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>版本</th>
+                  <th>题型</th>
+                  <th>题干</th>
+                  <th>创建时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyVersions.map((item) => (
+                  <tr key={item.id}>
+                    <td>v{item.versionNo ?? '—'}</td>
+                    <td>{TYPE_LABELS[item.type] ?? item.type}</td>
+                    <td className="stem-cell">{item.stem}</td>
+                    <td>{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button type="button" className="btn-text" onClick={() => setHistoryQuestionId('')}>
+              关闭
+            </button>
+          </div>
         )}
       </section>
     </div>

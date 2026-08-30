@@ -5,8 +5,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
+
 public interface OutageEventRepository extends JpaRepository<OutageEvent, String> {
     Page<OutageEvent> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     boolean existsByStatus(String status);
+
+    List<OutageEvent> findByStatus(String status);
 }

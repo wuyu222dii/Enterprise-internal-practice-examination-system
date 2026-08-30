@@ -1,0 +1,31 @@
+.review-item {
+  margin-bottom: 24rpx;
+}
+
+.review-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 26rpx;
+  color: #6b7280;
+  margin-bottom: 12rpx;
+}
+
+.stem {
+  font-size: 30rpx;
+  font-weight: 500;
+  margin-bottom: 16rpx;
+}
+
+.review-line {
+  font-size: 26rpx;
+  color: #4b5563;
+  margin-top: 8rpx;
+}
+
+.result-pass {
+  color: #16a34a;
+}
+
+.result-fail {
+  color: #dc2626;
+}

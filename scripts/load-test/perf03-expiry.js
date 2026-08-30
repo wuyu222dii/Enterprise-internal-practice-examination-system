@@ -7,9 +7,10 @@
 //   1. EXAM_ID=<id> k6 run scripts/load-test/perf03-expiry.js
 //   2. force every in-flight attempt to expire in the same second:
 //        docker exec exam_system-postgres-1 psql -U exam -d exam_system -c \
-//          "update exam_attempts set expires_at = now() - interval '1 second' \
+//          "update exam_attempts set expires_at = now() - interval '25 seconds' \
 //            where exam_id='<EXAM_ID>' and attempt_status='inProgress';"
-//   3. wait for one scheduler tick (exam.scheduler.auto-submit-ms, 60s by default)
+//   3. wait for one scheduler tick (exam.scheduler.auto-submit-ms, 60s by default).
+//      The attempt observation window is 20s; expiry must be at least 20s in the past.
 //   4. verify uniqueness and that nothing is left behind:
 //        select attempt_status, count(*) from exam_attempts where exam_id='<EXAM_ID>' group by 1;
 //        select count(*) from exam_results r

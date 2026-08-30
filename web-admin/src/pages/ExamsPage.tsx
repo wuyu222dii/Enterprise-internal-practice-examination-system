@@ -32,6 +32,7 @@ export default function ExamsPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [cancellingId, setCancellingId] = useState('')
 
   const loadExams = useCallback(async () => {
     setLoading(true)
@@ -51,11 +52,31 @@ export default function ExamsPage() {
     loadExams()
   }, [loadExams])
 
+  async function handleCancel(exam: ExamSummary) {
+    const employeeVisibleReason = window.prompt('员工可见原因（必填）') ?? ''
+    if (!employeeVisibleReason.trim()) return
+    const internalReason = window.prompt('内部原因（必填）') ?? ''
+    if (!internalReason.trim()) return
+    setCancellingId(exam.id)
+    setError('')
+    try {
+      await apiFetch(`/admin/exams/${exam.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ employeeVisibleReason, internalReason }),
+      })
+      await loadExams()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '取消失败')
+    } finally {
+      setCancellingId('')
+    }
+  }
+
   return (
     <div className="page">
       <header className="page-header">
         <h1>考试管理</h1>
-        <p className="page-desc">考试列表与创建向导</p>
+        <p className="page-desc">考试列表、创建向导与整场取消</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -96,7 +117,26 @@ export default function ExamsPage() {
                   </td>
                   <td>
                     {exam.lifecycle === 'draft' && (
-                      <Link to={`/exams/${exam.id}/wizard`}>继续配置</Link>
+                      <>
+                        <Link to={`/exams/${exam.id}/wizard`}>继续配置</Link>
+                        {' · '}
+                      </>
+                    )}
+                    <Link to={`/monitor`}>监控</Link>
+                    {' · '}
+                    <Link to={`/scores`}>成绩</Link>
+                    {exam.lifecycle !== 'cancelled' && exam.lifecycle !== 'draft' && (
+                      <>
+                        {' · '}
+                        <button
+                          type="button"
+                          className="btn-text"
+                          disabled={cancellingId === exam.id}
+                          onClick={() => void handleCancel(exam)}
+                        >
+                          {cancellingId === exam.id ? '取消中…' : '取消整场'}
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>

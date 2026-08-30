@@ -3,6 +3,11 @@ page {
   color: #1f2937;
   font-size: 28rpx;
   line-height: 1.5;
+  --color-primary: #1b4b8a;
+  --color-bg: #f5f7fa;
+  --color-danger: #dc2626;
+  --color-warning: #d97706;
+  --color-success: #16a34a;
 }
 
 .page {
@@ -79,6 +84,19 @@ page {
 }
 
 .btn-primary::after {
+  border: none;
+}
+
+.btn-danger {
+  background-color: #dc2626;
+  color: #ffffff;
+  border-radius: 16rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+  margin-top: 16rpx;
+}
+
+.btn-danger::after {
   border: none;
 }
 
@@ -235,8 +253,9 @@ page {
 .mode-card {
   background: #ffffff;
   border: 2rpx solid #e5e7eb;
-  border-radius: 24rpx;
-  padding: 32rpx 28rpx;
+  border-radius: 16rpx;
+  padding: 32rpx 24rpx;
+  min-height: 200rpx;
 }
 
 .mode-title {

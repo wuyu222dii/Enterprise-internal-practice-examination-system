@@ -18,6 +18,7 @@ public class Exam {
     @Column(name = "stop_attempt_at") private Instant stopAttemptAt;
     @Column(name = "published_version_id", length = 32) private String publishedVersionId;
     @Column(name = "result_locked", nullable = false) private boolean resultLocked;
+    @Column(name = "employee_visible_reason", columnDefinition = "text") private String employeeVisibleReason;
     @JsonColumn @Column(name = "wizard_config", nullable = false) private String wizardConfig = "{}";
     @Column(name = "created_by", nullable = false, length = 32) private String createdBy;
     @CreationTimestamp @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
@@ -41,6 +42,8 @@ public class Exam {
     public void setPublishedVersionId(String publishedVersionId) { this.publishedVersionId = publishedVersionId; }
     public boolean isResultLocked() { return resultLocked; }
     public void setResultLocked(boolean resultLocked) { this.resultLocked = resultLocked; }
+    public String getEmployeeVisibleReason() { return employeeVisibleReason; }
+    public void setEmployeeVisibleReason(String employeeVisibleReason) { this.employeeVisibleReason = employeeVisibleReason; }
     public String getWizardConfig() { return wizardConfig; }
     public void setWizardConfig(String wizardConfig) { this.wizardConfig = wizardConfig; }
     public String getCreatedBy() { return createdBy; }

@@ -43,4 +43,7 @@ public interface ExamAttemptRepository extends JpaRepository<ExamAttempt, String
     Page<ExamAttempt> findByEmployeeIdOrderByCreatedAtDesc(String employeeId, Pageable pageable);
 
     Page<ExamAttempt> findByExamIdOrderByEmployeeIdAscAttemptNumberAsc(String examId, Pageable pageable);
+
+    @Query("SELECT COUNT(DISTINCT a.employeeId) FROM ExamAttempt a WHERE a.examId = :examId")
+    long countDistinctEmployeesByExamId(@Param("examId") String examId);
 }

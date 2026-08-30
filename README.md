@@ -6,7 +6,7 @@
 
 | 阶段 | 路径 | 说明 |
 | --- | --- | --- |
-| 需求调研 | [docs/01-需求调研/](docs/01-需求调研/) | 需求分析 V1.1、MVP 范围、62 条验收项 |
+| 需求调研 | [docs/01-需求调研/](docs/01-需求调研/) | 需求分析 V1.2、MVP 范围、62 条验收项 |
 | 方案设计 | [docs/02-方案设计/](docs/02-方案设计/) | PRD 总览、三端页面级 PRD |
 | 研发对接 | [docs/03-研发对接/](docs/03-研发对接/) | Figma 设计源、视觉规范、屏幕标注 |
 | 接口设计 | [docs/04-接口设计/](docs/04-接口设计/) | REST API 规格、OpenAPI 3.1 |
@@ -39,7 +39,7 @@
 | [backend/](backend/) | Spring Boot 3 API（Java 17） |
 | [web-admin/](web-admin/) | React 管理后台 |
 | [web-exam/](web-exam/) | React 正式考试端 |
-| [mini-program/](mini-program/) | 微信小程序骨架 |
+| [mini-program/](mini-program/) | 微信小程序（练习 / 模拟 / 正式任务查看 / 账号） |
 | [openapi/](openapi/) | OpenAPI 契约副本 |
 | [scripts/](scripts/) | 冒烟测试、压测脚本 |
 | [docker-compose.yml](docker-compose.yml) | 本地 PostgreSQL + Redis + MinIO |
@@ -74,6 +74,9 @@ cd web-exam && npm install && npm run dev
 | I13 | 故障检测与考试端健壮性 | 已完成 |
 | I14 | 全量验收自动化 + PERF 记录 | 已完成 |
 | I15 | 小程序微信身份、灾备与安全 | 已完成 |
+| I16 | 对照 PRD 补齐 UI 与文档口径（essay 入基线、专项/错题、题库与组卷、监控分维） | 已完成 |
+
+说明：I1–I15 表示主链路与自动化已落地；管理后台/小程序相对 Figma 的页面深度仍按验收项补齐，不以迭代表“已完成”替代 PRD 粒度验收。PERF-01~03 全量 500 人须在独立压测机执行。
 
 验收进度见 [docs/06-测试验收/验收追踪.md](docs/06-测试验收/验收追踪.md)。
 

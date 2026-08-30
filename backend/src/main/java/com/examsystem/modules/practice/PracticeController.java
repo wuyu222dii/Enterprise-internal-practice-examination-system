@@ -36,6 +36,11 @@ public class PracticeController {
         return ApiResponse.ok(practiceService.listBanks(), metaFactory.build());
     }
 
+    @GetMapping("/banks/{bankId}/taxonomy")
+    public ApiResponse<List<Map<String, Object>>> taxonomy(@PathVariable String bankId) {
+        return ApiResponse.ok(practiceService.listTaxonomy(bankId), metaFactory.build());
+    }
+
     @GetMapping("/sessions/active")
     public ApiResponse<Map<String, Object>> getActiveSession() {
         return ApiResponse.ok(practiceService.getActiveSession(), metaFactory.build());
@@ -52,6 +57,11 @@ public class PracticeController {
     @GetMapping("/sessions/{id}")
     public ApiResponse<Map<String, Object>> getSession(@PathVariable String id) {
         return ApiResponse.ok(practiceService.getSession(id), metaFactory.build());
+    }
+
+    @GetMapping("/sessions/{id}/review")
+    public ApiResponse<Map<String, Object>> getReview(@PathVariable String id) {
+        return ApiResponse.ok(practiceService.getReview(id), metaFactory.build());
     }
 
     @PostMapping("/sessions/{id}/answers")

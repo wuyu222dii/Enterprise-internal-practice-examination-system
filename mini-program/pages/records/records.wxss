@@ -29,9 +29,10 @@
   margin-bottom: 8rpx;
 }
 
-.record-meta {
+.record-notice {
+  margin-top: 8rpx;
   font-size: 24rpx;
-  color: #6b7c93;
+  color: #d97706;
 }
 
 .back-link {

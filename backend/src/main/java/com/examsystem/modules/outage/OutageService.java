@@ -6,6 +6,7 @@ import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.exam.ExamLifecycleSupport;
 import com.examsystem.modules.exam.entity.Exam;
 import com.examsystem.modules.exam.entity.ExamAttempt;
 import com.examsystem.modules.exam.repository.ExamAttemptRepository;
@@ -37,6 +38,7 @@ public class OutageService {
     private final OutageProposalRepository proposalRepository;
     private final ExamRepository examRepository;
     private final ExamAttemptRepository attemptRepository;
+    private final ExamLifecycleSupport lifecycleSupport;
     private final AuditService auditService;
     private final int compensationMinutes;
 
@@ -45,6 +47,7 @@ public class OutageService {
             OutageProposalRepository proposalRepository,
             ExamRepository examRepository,
             ExamAttemptRepository attemptRepository,
+            ExamLifecycleSupport lifecycleSupport,
             AuditService auditService,
             @Value("${exam.outage.compensation-minutes:15}") int compensationMinutes
     ) {
@@ -52,6 +55,7 @@ public class OutageService {
         this.proposalRepository = proposalRepository;
         this.examRepository = examRepository;
         this.attemptRepository = attemptRepository;
+        this.lifecycleSupport = lifecycleSupport;
         this.auditService = auditService;
         this.compensationMinutes = compensationMinutes;
     }
@@ -172,6 +176,7 @@ public class OutageService {
         List<String> examIds = toPause.stream().map(Exam::getId).toList();
         for (Exam exam : toPause) {
             pauseExamInternal(exam, reason);
+            lockIfObservationMissed(exam);
         }
 
         OutageEvent event = new OutageEvent();
@@ -196,6 +201,24 @@ public class OutageService {
         auditService.log("outage.detect", "OutageEvent", event.getId(), null,
                 Map.of("affectedExamIds", examIds, "source", "auto"), reason);
         return eventToDto(event);
+    }
+
+    private void lockIfObservationMissed(Exam exam) {
+        boolean missed = attemptRepository.findByExamId(exam.getId()).stream()
+                .anyMatch(lifecycleSupport::shouldLockForLateOutage);
+        if (!missed || exam.isResultLocked()) {
+            return;
+        }
+        exam.setResultLocked(true);
+        examRepository.save(exam);
+        auditService.log(
+                "exam.result_locked",
+                "Exam",
+                exam.getId(),
+                Map.of("resultLocked", false),
+                Map.of("resultLocked", true, "reason", "observation window missed"),
+                "OUT-01"
+        );
     }
 
     private void pauseExamInternal(Exam exam, String reason) {

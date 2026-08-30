@@ -6,8 +6,11 @@
   --color-text: #2c3e50;
   --color-text-muted: #6b7c93;
   --color-border: #dce3eb;
-  --color-error: #c0392b;
-  --color-success: #1e7e34;
+  --color-error: #dc2626;
+  --color-danger: #dc2626;
+  --color-warning: #d97706;
+  --color-success: #16a34a;
+  --exam-topbar-height: 54px;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
     'Microsoft YaHei', sans-serif;
 }
@@ -30,6 +33,100 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+.exam-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.exam-topbar {
+  height: var(--exam-topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--color-primary);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.exam-brand {
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.exam-brand:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+.exam-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.exam-topbar .user-label,
+.exam-topbar .btn-text {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.exam-shell-body {
+  flex: 1;
+}
+
+.gate-card h2 {
+  margin-bottom: 8px;
+}
+
+.gate-extra {
+  margin-top: 12px;
+  color: var(--color-text-muted);
+}
+
+.workbench-overlay {
+  position: fixed;
+  inset: var(--exam-topbar-height) 0 0;
+  background: rgba(27, 75, 138, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 24px;
+}
+
+.overlay-card {
+  max-width: 440px;
+  background: var(--color-surface);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 8px 24px rgba(27, 75, 138, 0.18);
+}
+
+.overlay-card h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.overlay-timer {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.workbench-layout.is-disabled {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.workbench .timer.timer-urgent {
+  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 a {

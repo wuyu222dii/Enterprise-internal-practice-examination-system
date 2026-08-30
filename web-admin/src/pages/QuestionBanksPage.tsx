@@ -16,7 +16,10 @@ export default function QuestionBanksPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [name, setName] = useState('')
+  const [practiceEnabled, setPracticeEnabled] = useState(true)
+  const [mockEnabled, setMockEnabled] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [updatingId, setUpdatingId] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,7 +45,7 @@ export default function QuestionBanksPage() {
     try {
       await apiFetch('/question-banks', {
         method: 'POST',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, practiceEnabled, mockEnabled }),
       })
       setName('')
       await load()
@@ -53,11 +56,27 @@ export default function QuestionBanksPage() {
     }
   }
 
+  async function patchBank(id: string, body: Record<string, unknown>) {
+    setUpdatingId(id)
+    setError('')
+    try {
+      await apiFetch(`/question-banks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新失败')
+    } finally {
+      setUpdatingId('')
+    }
+  }
+
   return (
     <div className="page">
       <header className="page-header">
         <h1>题库管理</h1>
-        <p className="page-desc">AD-05 题库列表与创建</p>
+        <p className="page-desc">AD-05 题库列表、创建与练习/模拟开关</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -74,6 +93,22 @@ export default function QuestionBanksPage() {
               placeholder="题库名称"
               required
             />
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={practiceEnabled}
+              onChange={(e) => setPracticeEnabled(e.target.checked)}
+            />
+            开放练习
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={mockEnabled}
+              onChange={(e) => setMockEnabled(e.target.checked)}
+            />
+            开放模拟
           </label>
           <button type="submit" className="btn-primary" disabled={submitting}>
             {submitting ? '创建中…' : '创建'}
@@ -100,13 +135,46 @@ export default function QuestionBanksPage() {
               {banks.map((b) => (
                 <tr key={b.id}>
                   <td>{b.name}</td>
-                  <td>{b.status}</td>
-                  <td>{b.practiceEnabled ? '是' : '否'}</td>
-                  <td>{b.mockEnabled ? '是' : '否'}</td>
+                  <td>{b.status === 'active' ? '启用' : '停用'}</td>
+                  <td>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={b.practiceEnabled}
+                        disabled={updatingId === b.id}
+                        onChange={(e) => patchBank(b.id, { practiceEnabled: e.target.checked })}
+                      />
+                      {b.practiceEnabled ? '开' : '关'}
+                    </label>
+                  </td>
+                  <td>
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={b.mockEnabled}
+                        disabled={updatingId === b.id}
+                        onChange={(e) => patchBank(b.id, { mockEnabled: e.target.checked })}
+                      />
+                      {b.mockEnabled ? '开' : '关'}
+                    </label>
+                  </td>
                   <td>
                     <Link to={`/question-banks/${b.id}/questions`}>题目</Link>
                     {' · '}
                     <Link to={`/import?bankId=${b.id}`}>导入</Link>
+                    {' · '}
+                    <button
+                      type="button"
+                      className="btn-text"
+                      disabled={updatingId === b.id}
+                      onClick={() =>
+                        patchBank(b.id, {
+                          status: b.status === 'active' ? 'disabled' : 'active',
+                        })
+                      }
+                    >
+                      {b.status === 'active' ? '停用题库' : '启用题库'}
+                    </button>
                   </td>
                 </tr>
               ))}
