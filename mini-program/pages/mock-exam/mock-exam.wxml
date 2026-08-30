@@ -19,16 +19,28 @@
     <view class="stem">{{currentItem.stem}}</view>
     <view class="score-hint">本题 {{currentItem.score}} 分</view>
 
-    <view
-      wx:for="{{displayOptions}}"
-      wx:key="key"
-      class="option {{item.state}}"
-      data-key="{{item.key}}"
-      bindtap="onSelectOption"
-    >
-      <text class="option-key">{{item.key}}</text>
-      <text class="option-text">{{item.text}}</text>
-    </view>
+    <textarea
+      wx:if="{{isEssay}}"
+      class="essay-input"
+      value="{{essayText}}"
+      placeholder="请输入解答内容"
+      maxlength="-1"
+      auto-height
+      bindinput="onEssayInput"
+    />
+
+    <block wx:else>
+      <view
+        wx:for="{{displayOptions}}"
+        wx:key="key"
+        class="option {{item.state}}"
+        data-key="{{item.key}}"
+        bindtap="onSelectOption"
+      >
+        <text class="option-key">{{item.key}}</text>
+        <text class="option-text">{{item.text}}</text>
+      </view>
+    </block>
 
     <view class="nav-row">
       <button size="mini" disabled="{{currentIndex <= 0}}" bindtap="onPrev">上一题</button>

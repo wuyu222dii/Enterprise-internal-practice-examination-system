@@ -11,7 +11,7 @@ import java.util.Map;
 public record QuestionVersionInput(
         @NotBlank String type,
         @NotBlank String stem,
-        @NotEmpty List<Map<String, Object>> options,
+        List<Map<String, Object>> options,
         @NotEmpty List<String> standardAnswer,
         String explanation,
         String difficulty,

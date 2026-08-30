@@ -29,6 +29,40 @@ interface PagedQuestions {
   pageSize: number
 }
 
+interface OptionRow {
+  key: string
+  text: string
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  singleChoice: '单选',
+  multipleChoice: '多选',
+  trueFalse: '判断',
+  essay: '解答题',
+}
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  easy: '简单',
+  medium: '中等',
+  hard: '困难',
+}
+
+function defaultOptions(type: string): OptionRow[] {
+  if (type === 'trueFalse') {
+    return [
+      { key: 'A', text: '正确' },
+      { key: 'B', text: '错误' },
+    ]
+  }
+  if (type === 'essay') {
+    return []
+  }
+  return [
+    { key: 'A', text: '选项A' },
+    { key: 'B', text: '选项B' },
+  ]
+}
+
 export default function QuestionsPage() {
   const { bankId } = useParams<{ bankId: string }>()
   const [questions, setQuestions] = useState<QuestionDto[]>([])
@@ -39,10 +73,14 @@ export default function QuestionsPage() {
   const [categoryId, setCategoryId] = useState('')
   const [type, setType] = useState('singleChoice')
   const [stem, setStem] = useState('')
-  const [options, setOptions] = useState('[{"key":"A","text":"选项A"},{"key":"B","text":"选项B"}]')
-  const [standardAnswer, setStandardAnswer] = useState('["A"]')
+  const [optionRows, setOptionRows] = useState<OptionRow[]>(defaultOptions('singleChoice'))
+  const [answerKeys, setAnswerKeys] = useState<string[]>(['A'])
+  const [referenceAnswer, setReferenceAnswer] = useState('')
   const [difficulty, setDifficulty] = useState('medium')
   const [submitting, setSubmitting] = useState(false)
+
+  const isEssay = type === 'essay'
+  const isMultiple = type === 'multipleChoice'
 
   const load = useCallback(async () => {
     if (!bankId) return
@@ -55,9 +93,7 @@ export default function QuestionsPage() {
       ])
       setQuestions(questionsRes.data.items)
       setCategories(categoriesRes.data)
-      if (categoriesRes.data.length > 0 && !categoryId) {
-        setCategoryId(categoriesRes.data[0].id)
-      }
+      setCategoryId((prev) => prev || categoriesRes.data[0]?.id || '')
 
       const versionMap: Record<string, QuestionVersionDto> = {}
       await Promise.all(
@@ -76,11 +112,41 @@ export default function QuestionsPage() {
     } finally {
       setLoading(false)
     }
-  }, [bankId, categoryId])
+  }, [bankId])
 
   useEffect(() => {
     load()
   }, [load])
+
+  function handleTypeChange(next: string) {
+    setType(next)
+    setOptionRows(defaultOptions(next))
+    setAnswerKeys(next === 'essay' ? [] : ['A'])
+    setReferenceAnswer('')
+  }
+
+  function updateOption(index: number, field: keyof OptionRow, value: string) {
+    setOptionRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)))
+  }
+
+  function addOption() {
+    const nextKey = String.fromCharCode(65 + optionRows.length)
+    setOptionRows((prev) => [...prev, { key: nextKey, text: `选项${nextKey}` }])
+  }
+
+  function removeOption(index: number) {
+    setOptionRows((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function toggleAnswer(key: string) {
+    if (isMultiple) {
+      setAnswerKeys((prev) =>
+        prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+      )
+    } else {
+      setAnswerKeys([key])
+    }
+  }
 
   async function handleCreateCategory() {
     if (!bankId) return
@@ -100,6 +166,22 @@ export default function QuestionsPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
     if (!bankId || !categoryId) return
+    if (!stem.trim()) {
+      setError('请填写题干')
+      return
+    }
+    if (isEssay && !referenceAnswer.trim()) {
+      setError('请填写参考答案')
+      return
+    }
+    if (!isEssay && (optionRows.length < 2 || optionRows.some((row) => !row.text.trim()))) {
+      setError('请至少填写两个选项')
+      return
+    }
+    if (!isEssay && answerKeys.length === 0) {
+      setError('请选择标准答案')
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
@@ -109,14 +191,17 @@ export default function QuestionsPage() {
           categoryId,
           version: {
             type,
-            stem,
-            options: JSON.parse(options),
-            standardAnswer: JSON.parse(standardAnswer),
+            stem: stem.trim(),
+            options: isEssay ? [] : optionRows,
+            standardAnswer: isEssay ? [referenceAnswer.trim()] : answerKeys,
             difficulty,
           },
         }),
       })
       setStem('')
+      setReferenceAnswer('')
+      setOptionRows(defaultOptions(type))
+      setAnswerKeys(type === 'essay' ? [] : ['A'])
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建失败')
@@ -146,53 +231,109 @@ export default function QuestionsPage() {
             </button>
           </p>
         ) : (
-          <form className="inline-form" onSubmit={handleCreate}>
-            <label>
-              分类
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              题型
-              <select value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="singleChoice">单选</option>
-                <option value="multipleChoice">多选</option>
-                <option value="trueFalse">判断</option>
-              </select>
-            </label>
-            <label>
+          <form className="stack-form" onSubmit={handleCreate}>
+            <div className="form-row">
+              <label>
+                分类
+                <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                题型
+                <select value={type} onChange={(e) => handleTypeChange(e.target.value)}>
+                  <option value="singleChoice">单选</option>
+                  <option value="multipleChoice">多选</option>
+                  <option value="trueFalse">判断</option>
+                  <option value="essay">解答题</option>
+                </select>
+              </label>
+              <label>
+                难度
+                <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+                  <option value="easy">简单</option>
+                  <option value="medium">中等</option>
+                  <option value="hard">困难</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="field-block">
               题干
-              <input type="text" value={stem} onChange={(e) => setStem(e.target.value)} required />
-            </label>
-            <label>
-              选项 (JSON)
-              <input type="text" value={options} onChange={(e) => setOptions(e.target.value)} required />
-            </label>
-            <label>
-              标准答案 (JSON)
-              <input
-                type="text"
-                value={standardAnswer}
-                onChange={(e) => setStandardAnswer(e.target.value)}
+              <textarea
+                rows={5}
+                value={stem}
+                onChange={(e) => setStem(e.target.value)}
+                placeholder="请输入题目内容，支持多行"
                 required
               />
             </label>
-            <label>
-              难度
-              <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
-                <option value="easy">简单</option>
-                <option value="medium">中等</option>
-                <option value="hard">困难</option>
-              </select>
-            </label>
-            <button type="submit" className="btn-primary" disabled={submitting}>
-              {submitting ? '创建中…' : '创建'}
-            </button>
+
+            {isEssay ? (
+              <label className="field-block">
+                参考答案
+                <textarea
+                  rows={4}
+                  value={referenceAnswer}
+                  onChange={(e) => setReferenceAnswer(e.target.value)}
+                  placeholder="请输入参考答案，支持多行"
+                  required
+                />
+                <span className="field-hint">
+                  解答题暂无选项。当前按去空白后精确比对评分，人工阅卷尚未开放。
+                </span>
+              </label>
+            ) : (
+              <div className="field-block">
+                <span className="field-legend">选项与标准答案</span>
+                {optionRows.map((row, index) => (
+                  <div className="option-editor-row" key={`${row.key}-${index}`}>
+                    <input
+                      className="option-key-input"
+                      value={row.key}
+                      onChange={(e) => updateOption(index, 'key', e.target.value.toUpperCase())}
+                      maxLength={2}
+                      aria-label="选项键"
+                    />
+                    <input
+                      className="option-text-input"
+                      value={row.text}
+                      onChange={(e) => updateOption(index, 'text', e.target.value)}
+                      placeholder={`选项${row.key}`}
+                    />
+                    <label className="option-answer">
+                      <input
+                        type={isMultiple ? 'checkbox' : 'radio'}
+                        name="standard-answer"
+                        checked={answerKeys.includes(row.key)}
+                        onChange={() => toggleAnswer(row.key)}
+                      />
+                      答案
+                    </label>
+                    {optionRows.length > 2 && type !== 'trueFalse' && (
+                      <button type="button" className="btn-text" onClick={() => removeOption(index)}>
+                        删除
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {type !== 'trueFalse' && (
+                  <button type="button" className="btn-secondary" onClick={addOption}>
+                    添加选项
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="form-actions">
+              <button type="submit" className="btn-primary" disabled={submitting}>
+                {submitting ? '创建中…' : '创建'}
+              </button>
+            </div>
           </form>
         )}
       </section>
@@ -218,10 +359,10 @@ export default function QuestionsPage() {
                 return (
                   <tr key={q.id}>
                     <td>{q.id}</td>
-                    <td>{v?.type ?? '—'}</td>
-                    <td>{v?.stem ?? '—'}</td>
-                    <td>{v?.difficulty ?? '—'}</td>
-                    <td>{q.status}</td>
+                    <td>{TYPE_LABELS[v?.type ?? ''] ?? v?.type ?? '—'}</td>
+                    <td className="stem-cell">{v?.stem ?? '—'}</td>
+                    <td>{DIFFICULTY_LABELS[v?.difficulty ?? ''] ?? v?.difficulty ?? '—'}</td>
+                    <td>{q.status === 'active' ? '启用' : q.status}</td>
                   </tr>
                 )
               })}

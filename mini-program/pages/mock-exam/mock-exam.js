@@ -8,6 +8,8 @@ Page({
     currentItem: null,
     selectedKeys: [],
     displayOptions: [],
+    isEssay: false,
+    essayText: '',
     answerVersions: {},
     remainingSeconds: 0,
     loading: false,
@@ -55,6 +57,8 @@ Page({
           this.setData({
             paper,
             currentItem,
+            isEssay: currentItem?.type === 'essay',
+            essayText: '',
             displayOptions: this.buildOptions(currentItem, []),
           })
           this.loadTiming()
@@ -107,6 +111,10 @@ Page({
     return type === 'multipleChoice'
   },
 
+  isEssay(type) {
+    return type === 'essay'
+  },
+
   optionKey(opt) {
     return opt.key || opt.label || opt.id
   },
@@ -125,6 +133,15 @@ Page({
       selectedKeys,
       displayOptions: this.buildOptions(this.data.currentItem, selectedKeys),
     })
+  },
+
+  onEssayInput(e) {
+    const text = e.detail.value || ''
+    this.setData({
+      essayText: text,
+      selectedKeys: text.trim() ? [text] : [],
+    })
+    this.scheduleSave()
   },
 
   onSelectOption(e) {
@@ -166,7 +183,7 @@ Page({
         'Content-Type': 'application/json',
       },
       data: {
-        answer: selectedKeys.sort(),
+        answer: this.isEssay(currentItem.type) ? selectedKeys : [...selectedKeys].sort(),
         answerVersion: version,
       },
       success: (res) => {
@@ -192,6 +209,8 @@ Page({
         currentIndex: idx,
         currentItem: item,
         selectedKeys: [],
+        isEssay: item?.type === 'essay',
+        essayText: '',
         displayOptions: this.buildOptions(item, []),
       })
     })
@@ -207,6 +226,8 @@ Page({
         currentIndex: idx,
         currentItem: item,
         selectedKeys: [],
+        isEssay: item?.type === 'essay',
+        essayText: '',
         displayOptions: this.buildOptions(item, []),
       })
     })

@@ -2212,11 +2212,12 @@ components:
 
     QuestionType:
       type: string
-      enum: [singleChoice, multipleChoice, trueFalse]
+      enum: [singleChoice, multipleChoice, trueFalse, essay]
+      description: essay 为解答题，无选项；standardAnswer 存参考答案文本
 
     QuestionVersionInput:
       type: object
-      required: [type, stem, options, standardAnswer]
+      required: [type, stem, standardAnswer]
       properties:
         type:
           $ref: '#/components/schemas/QuestionType'

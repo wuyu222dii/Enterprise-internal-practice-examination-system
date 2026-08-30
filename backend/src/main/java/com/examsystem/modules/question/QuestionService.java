@@ -332,7 +332,7 @@ public class QuestionService {
         version.setVersionNo(versionNo);
         version.setType(input.type());
         version.setStem(input.stem());
-        version.setOptionsJson(JsonHelper.toJson(input.options()));
+        version.setOptionsJson(JsonHelper.toJson(input.options() != null ? input.options() : List.of()));
         version.setStandardAnswer(JsonHelper.toJson(input.standardAnswer()));
         version.setExplanation(input.explanation());
         version.setDifficulty(input.difficulty() != null ? input.difficulty() : "medium");

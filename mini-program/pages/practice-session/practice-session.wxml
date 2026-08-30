@@ -15,16 +15,29 @@
     <view class="progress">第 {{currentIndex + 1}} / {{session.questionCount}} 题</view>
     <view class="stem">{{currentItem.stem}}</view>
 
-    <view
-      wx:for="{{displayOptions}}"
-      wx:key="key"
-      class="option {{item.state}}"
-      data-key="{{item.key}}"
-      bindtap="onSelectOption"
-    >
-      <text class="option-key">{{item.key}}</text>
-      <text class="option-text">{{item.text}}</text>
-    </view>
+    <textarea
+      wx:if="{{isEssay}}"
+      class="essay-input"
+      value="{{essayText}}"
+      placeholder="请输入解答内容"
+      maxlength="-1"
+      auto-height
+      disabled="{{feedback}}"
+      bindinput="onEssayInput"
+    />
+
+    <block wx:else>
+      <view
+        wx:for="{{displayOptions}}"
+        wx:key="key"
+        class="option {{item.state}}"
+        data-key="{{item.key}}"
+        bindtap="onSelectOption"
+      >
+        <text class="option-key">{{item.key}}</text>
+        <text class="option-text">{{item.text}}</text>
+      </view>
+    </block>
 
     <view wx:if="{{!feedback}}">
       <button class="btn-primary" loading="{{submitting}}" bindtap="onSubmitAnswer">提交答案</button>

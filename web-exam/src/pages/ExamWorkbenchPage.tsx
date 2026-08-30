@@ -10,7 +10,7 @@ interface QuestionOption {
 interface PaperItem {
   itemId: string
   order: number
-  type: 'singleChoice' | 'multipleChoice' | 'trueFalse'
+  type: 'singleChoice' | 'multipleChoice' | 'trueFalse' | 'essay'
   stem: string
   options: QuestionOption[]
   score: number
@@ -223,6 +223,15 @@ export default function ExamWorkbenchPage() {
     scheduleSave(itemId, next)
   }
 
+  function handleEssayChange(itemId: string, text: string) {
+    const next = text.trim() ? [text] : []
+    setAnswers((prev) => ({ ...prev, [itemId]: next }))
+    setSaved((prev) => ({ ...prev, [itemId]: false }))
+    if (next.length > 0) {
+      scheduleSave(itemId, next)
+    }
+  }
+
   function handleMultipleToggle(itemId: string, key: string) {
     const current = answers[itemId] ?? []
     const next = current.includes(key)
@@ -262,6 +271,21 @@ export default function ExamWorkbenchPage() {
   function renderOptions(item: PaperItem) {
     const selected = answers[item.itemId] ?? []
     const isSaving = saving[item.itemId]
+
+    if (item.type === 'essay') {
+      return (
+        <label className="essay-field">
+          作答
+          <textarea
+            rows={8}
+            value={selected[0] ?? ''}
+            disabled={isSaving || paused}
+            placeholder="请输入解答内容"
+            onChange={(e) => handleEssayChange(item.itemId, e.target.value)}
+          />
+        </label>
+      )
+    }
 
     if (item.type === 'multipleChoice') {
       return (
@@ -337,6 +361,7 @@ export default function ExamWorkbenchPage() {
                     {currentItem.type === 'singleChoice' && '单选题'}
                     {currentItem.type === 'multipleChoice' && '多选题'}
                     {currentItem.type === 'trueFalse' && '判断题'}
+                    {currentItem.type === 'essay' && '解答题'}
                   </span>
                   <span>{currentItem.score} 分</span>
                   {saving[currentItem.itemId] && (

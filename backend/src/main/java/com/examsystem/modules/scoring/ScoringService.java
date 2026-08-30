@@ -22,8 +22,15 @@ public class ScoringService {
                     && standard.size() == 1
                     && standard.get(0).equals(normalizedUser.get(0));
             case "multipleChoice" -> sortedListsEqual(standard, normalizedUser);
+            case "essay" -> normalizedUser.size() == 1
+                    && standard.size() == 1
+                    && normalizeEssay(standard.get(0)).equals(normalizeEssay(normalizedUser.get(0)));
             default -> false;
         };
+    }
+
+    private static String normalizeEssay(String text) {
+        return text == null ? "" : text.trim().replaceAll("\\s+", " ");
     }
 
     private boolean sortedListsEqual(List<String> a, List<String> b) {

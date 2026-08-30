@@ -8,6 +8,8 @@ Page({
     currentItem: null,
     selectedKeys: [],
     displayOptions: [],
+    isEssay: false,
+    essayText: '',
     feedback: null,
     loading: false,
     submitting: false,
@@ -45,6 +47,8 @@ Page({
             currentItem,
             finished: session.status === 'finished',
             selectedKeys: [],
+            isEssay: currentItem?.type === 'essay',
+            essayText: '',
             displayOptions: this.buildOptions(currentItem, [], null),
           })
         } else {
@@ -62,6 +66,10 @@ Page({
 
   isMultiple(type) {
     return type === 'multipleChoice'
+  },
+
+  isEssay(type) {
+    return type === 'essay'
   },
 
   optionKey(opt) {
@@ -93,6 +101,15 @@ Page({
     })
   },
 
+  onEssayInput(e) {
+    if (this.data.feedback) return
+    const text = e.detail.value || ''
+    this.setData({
+      essayText: text,
+      selectedKeys: text.trim() ? [text] : [],
+    })
+  },
+
   onSelectOption(e) {
     if (this.data.feedback) return
     const key = e.currentTarget.dataset.key
@@ -112,7 +129,10 @@ Page({
     const { currentItem, selectedKeys, sessionId, submitting, feedback } = this.data
     if (submitting || feedback || !currentItem) return
     if (selectedKeys.length === 0) {
-      wx.showToast({ title: '请选择答案', icon: 'none' })
+      wx.showToast({
+        title: this.isEssay(currentItem?.type) ? '请填写答案' : '请选择答案',
+        icon: 'none',
+      })
       return
     }
     this.setData({ submitting: true })
@@ -159,6 +179,8 @@ Page({
       currentIndex: nextIndex,
       currentItem: items[nextIndex],
       selectedKeys: [],
+      isEssay: items[nextIndex]?.type === 'essay',
+      essayText: '',
       feedback: null,
       displayOptions: this.buildOptions(items[nextIndex], [], null),
     })

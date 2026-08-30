@@ -44,7 +44,7 @@ public class ImportService {
 
     private static final int MAX_ROWS = 1000;
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
-    private static final Set<String> VALID_TYPES = Set.of("singleChoice", "multipleChoice", "trueFalse");
+    private static final Set<String> VALID_TYPES = Set.of("singleChoice", "multipleChoice", "trueFalse", "essay");
     private static final Set<String> VALID_DIFFICULTIES = Set.of("easy", "medium", "hard");
     private static final String[] TEMPLATE_HEADERS = {"type", "stem", "options", "standardAnswer", "difficulty"};
 
@@ -281,7 +281,7 @@ public class ImportService {
                 validRow.put("rowNum", rowNum);
                 validRow.put("type", type.trim());
                 validRow.put("stem", stem.trim());
-                validRow.put("options", JsonHelper.parse(optionsRaw.trim()));
+                validRow.put("options", optionsRaw.isBlank() ? List.of() : JsonHelper.parse(optionsRaw.trim()));
                 validRow.put("standardAnswer", JsonHelper.parse(standardAnswerRaw.trim()));
                 validRow.put("difficulty", difficulty.isBlank() ? "medium" : difficulty.trim());
                 validRows.add(validRow);
@@ -317,18 +317,21 @@ public class ImportService {
         if (type.isBlank()) {
             errors.add("type 不能为空");
         } else if (!VALID_TYPES.contains(type.trim())) {
-            errors.add("type 无效，应为 singleChoice/multipleChoice/trueFalse");
+            errors.add("type 无效，应为 singleChoice/multipleChoice/trueFalse/essay");
         }
         if (stem.isBlank()) {
             errors.add("stem 不能为空");
         }
+        boolean essay = "essay".equals(type.trim());
         if (optionsRaw.isBlank()) {
-            errors.add("options 不能为空");
+            if (!essay) {
+                errors.add("options 不能为空");
+            }
         } else {
             try {
                 Object parsed = JsonHelper.parse(optionsRaw.trim());
-                if (!(parsed instanceof List<?> list) || list.isEmpty()) {
-                    errors.add("options 必须为非空 JSON 数组");
+                if (!(parsed instanceof List<?> list) || (!essay && list.isEmpty())) {
+                    errors.add(essay ? "options 必须为 JSON 数组" : "options 必须为非空 JSON 数组");
                 }
             } catch (Exception e) {
                 errors.add("options 不是合法 JSON 数组");
