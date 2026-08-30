@@ -14,6 +14,10 @@ Page({
       wx.redirectTo({ url: '/pages/login/login' })
       return
     }
+    if (session?.mustChangePassword) {
+      wx.redirectTo({ url: '/pages/account/account?forceChange=1' })
+      return
+    }
     this.setData({
       displayName: session?.displayName || session?.employeeNo || '员工',
       employeeNo: session?.employeeNo || '',

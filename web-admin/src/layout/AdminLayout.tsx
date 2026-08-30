@@ -19,6 +19,7 @@ const navGroups = [
     items: [
       { to: '/question-banks', label: '题库管理' },
       { to: '/import', label: '题目导入' },
+      { to: '/import/tasks', label: '导入任务' },
     ],
   },
   {

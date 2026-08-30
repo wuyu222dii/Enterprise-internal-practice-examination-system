@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { apiFetch, newIdempotencyKey } from '../api/client'
+import { ApiError, apiFetch, newIdempotencyKey } from '../api/client'
 
 interface QuestionOption {
   key: string
@@ -121,6 +121,19 @@ export default function ExamWorkbenchPage() {
     return () => window.clearInterval(timer)
   }, [remainingSec])
 
+  async function syncConfirmedAnswers() {
+    if (!attemptId) return
+    const { data } = await apiFetch<AttemptDetail>(`/attempts/${attemptId}`)
+    const latestAnswers: AnswerMap = {}
+    const latestVersions: VersionMap = {}
+    for (const confirmed of data.confirmedAnswers ?? []) {
+      latestAnswers[confirmed.itemId] = confirmed.answer
+      latestVersions[confirmed.itemId] = confirmed.confirmedVersion
+    }
+    setAnswers(latestAnswers)
+    setVersions(latestVersions)
+  }
+
   async function persistAnswer(itemId: string, answer: string[]) {
     if (!attemptId) return
     const nextVersion = (versions[itemId] ?? 0) + 1
@@ -137,7 +150,12 @@ export default function ExamWorkbenchPage() {
       })
       setVersions((prev) => ({ ...prev, [itemId]: data.confirmedVersion }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败')
+      if (err instanceof ApiError && err.status === 409) {
+        await syncConfirmedAnswers()
+        setError('答案版本冲突，已同步最新数据，请重新选择答案')
+      } else {
+        setError(err instanceof Error ? err.message : '保存失败')
+      }
       throw err
     } finally {
       setSaving((prev) => ({ ...prev, [itemId]: false }))

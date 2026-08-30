@@ -3,6 +3,7 @@ package com.examsystem.modules.exam;
 import com.examsystem.common.ApiResponse;
 import com.examsystem.common.MetaFactory;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.outage.OutageService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,10 +27,12 @@ import java.util.Map;
 public class ExamAdminController {
 
     private final ExamService examService;
+    private final OutageService outageService;
     private final MetaFactory metaFactory;
 
-    public ExamAdminController(ExamService examService, MetaFactory metaFactory) {
+    public ExamAdminController(ExamService examService, OutageService outageService, MetaFactory metaFactory) {
         this.examService = examService;
+        this.outageService = outageService;
         this.metaFactory = metaFactory;
     }
 
@@ -108,5 +111,11 @@ public class ExamAdminController {
     @GetMapping("/{id}/monitor")
     public ApiResponse<Map<String, Object>> monitor(@PathVariable String id) {
         return ApiResponse.ok(examService.getMonitor(id), metaFactory.build());
+    }
+
+    @PostMapping("/{id}/pause")
+    public ApiResponse<Object> pauseExam(@PathVariable String id, @RequestBody(required = false) Map<String, String> body) {
+        outageService.pauseExam(id, body != null ? body.get("reason") : null);
+        return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
     }
 }

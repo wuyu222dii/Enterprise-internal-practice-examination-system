@@ -137,6 +137,12 @@ export default function AccountPage() {
 
           <section className="card">
             <h2>管理员授权</h2>
+            <p className="page-desc">
+              授权变更将记录至
+              {' '}
+              <Link to="/audit">审计日志</Link>
+              ，请填写原因以便追溯。
+            </p>
             <form onSubmit={handleGrants}>
               <label className="checkbox-label">
                 <input

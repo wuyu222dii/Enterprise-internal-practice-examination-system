@@ -31,6 +31,7 @@ public class ReportService {
     private final ExportJobRepository exportJobRepository;
     private final ExamService examService;
     private final ExportJobRunner exportJobRunner;
+    private final ExportFileStore exportFileStore;
     private final AuditService auditService;
 
     public ReportService(
@@ -39,6 +40,7 @@ public class ReportService {
             ExportJobRepository exportJobRepository,
             ExamService examService,
             ExportJobRunner exportJobRunner,
+            ExportFileStore exportFileStore,
             AuditService auditService
     ) {
         this.attemptRepository = attemptRepository;
@@ -46,6 +48,7 @@ public class ReportService {
         this.exportJobRepository = exportJobRepository;
         this.examService = examService;
         this.exportJobRunner = exportJobRunner;
+        this.exportFileStore = exportFileStore;
         this.auditService = auditService;
     }
 
@@ -130,9 +133,20 @@ public class ReportService {
         Map<String, Object> dto = new HashMap<>();
         dto.put("jobId", job.getId());
         dto.put("status", job.getStatus());
-        dto.put("downloadUrl", job.getFileKey());
+        dto.put("downloadUrl", "/admin/exports/" + job.getId() + "/download");
         dto.put("expiresAt", job.getExpiresAt());
         return dto;
+    }
+
+    public byte[] downloadExport(String jobId) {
+        SecurityUtils.requireAdmin();
+        ExportJob job = exportJobRepository.findById(jobId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "导出任务不存在", 404));
+        if (!"completed".equals(job.getStatus()) || job.getFileKey() == null) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "导出尚未完成", 422);
+        }
+        return exportFileStore.get(job.getFileKey())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "导出文件不存在", 404));
     }
 
     private Map<String, Object> scoreRow(ExamAttempt attempt) {

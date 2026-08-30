@@ -33,6 +33,7 @@ import com.examsystem.modules.question.QuestionService;
 import com.examsystem.modules.question.entity.QuestionVersion;
 import com.examsystem.modules.scoring.ScoringService;
 import com.examsystem.security.SecurityUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -303,6 +304,14 @@ public class ExamService {
         Exam exam = getExam(id);
         exam.setLifecycle("cancelled");
         examRepository.save(exam);
+        auditService.log(
+                "exam.cancel",
+                "Exam",
+                id,
+                Map.of("lifecycle", "openForAttempt"),
+                Map.of("lifecycle", "cancelled", "reason", internalReason != null ? internalReason : ""),
+                internalReason
+        );
     }
 
     public Map<String, Object> getMonitor(String id) {
@@ -345,6 +354,14 @@ public class ExamService {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "考试未开放", 422);
         }
 
+        Instant now = Instant.now();
+        if (exam.getOpenStartAt() != null && now.isBefore(exam.getOpenStartAt())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "考试尚未开始", 422);
+        }
+        if (exam.getStopAttemptAt() != null && now.isAfter(exam.getStopAttemptAt())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "已超过开考截止时间", 422);
+        }
+
         List<String> activeStatuses = List.of("inProgress", "submitting");
         attemptRepository.findByExamIdAndEmployeeIdAndAttemptStatusIn(examId, employeeId, activeStatuses)
                 .ifPresent(existing -> {
@@ -355,14 +372,19 @@ public class ExamService {
         ExamPublishedVersion version = publishedVersionRepository.findById(exam.getPublishedVersionId())
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "发布版本不存在", 404));
 
+        Map<String, Object> versionConfig = JsonHelper.toMap(version.getConfigJson());
+        int maxAttempts = intValue(versionConfig.get("maxAttempts"), 1);
+        long priorAttempts = attemptRepository.countByExamIdAndEmployeeId(examId, employeeId);
+        if (priorAttempts >= maxAttempts) {
+            throw BusinessException.of(ErrorCode.ATT_NO_REMAINING_OPPORTUNITY, "已无剩余考试次数", 422);
+        }
+
         assignmentRepository.findByPublishedVersionIdAndEmployeeId(version.getId(), employeeId)
                 .orElseThrow(() -> BusinessException.of(ErrorCode.SEC_FORBIDDEN, "不在应考名单", 403));
 
-        int attemptNumber = (int) attemptRepository.countByExamIdAndEmployeeId(examId, employeeId) + 1;
-        Map<String, Object> versionConfig = JsonHelper.toMap(version.getConfigJson());
+        int attemptNumber = (int) priorAttempts + 1;
         int durationMinutes = intValue(versionConfig.get("durationMinutes"), 60);
 
-        Instant now = Instant.now();
         ExamAttempt attempt = new ExamAttempt();
         attempt.setId(IdGenerator.newId("eat"));
         attempt.setExamId(examId);
@@ -372,10 +394,24 @@ public class ExamService {
         attempt.setVoided(false);
         attempt.setStartedAt(now);
         attempt.setExpiresAt(now.plus(Duration.ofMinutes(durationMinutes)));
-        attemptRepository.save(attempt);
+        try {
+            attemptRepository.save(attempt);
+        } catch (DataIntegrityViolationException ex) {
+            return attemptRepository.findByExamIdAndEmployeeIdAndAttemptStatusIn(examId, employeeId, activeStatuses)
+                    .map(this::buildStartResponse)
+                    .orElseThrow(() -> ex);
+        }
 
         generatePaper(attempt);
         return buildStartResponse(attempt);
+    }
+
+    public Map<String, Object> getActiveAttemptForExam(String examId) {
+        String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
+        List<String> activeStatuses = List.of("inProgress", "submitting");
+        return attemptRepository.findByExamIdAndEmployeeIdAndAttemptStatusIn(examId, employeeId, activeStatuses)
+                .map(this::buildStartResponse)
+                .orElse(Collections.emptyMap());
     }
 
     public Map<String, Object> getAttemptDetail(String attemptId) {
@@ -459,21 +495,54 @@ public class ExamService {
     public Map<String, Object> getAttemptResult(String attemptId) {
         ExamAttempt attempt = getAttempt(attemptId);
         SecurityUtils.requireOwnerOrAdmin(attempt.getEmployeeId());
+        Exam exam = getExam(attempt.getExamId());
         ExamResult result = resultRepository.findByExamAttemptId(attemptId).orElse(null);
+
+        ExamPublishedVersion version = publishedVersionRepository.findById(attempt.getPublishedVersionId()).orElse(null);
+        Map<String, Object> versionConfig = version != null ? JsonHelper.toMap(version.getConfigJson()) : Map.of();
+        Map<String, Object> resultPolicy = versionConfig.containsKey("resultPolicy")
+                ? section(versionConfig, "resultPolicy")
+                : Map.of();
+        BigDecimal passingScore = decimalValue(versionConfig.get("passingScore"), BigDecimal.ZERO);
+
+        boolean resultLocked = exam.isResultLocked();
+        boolean summaryVisible = !resultLocked && ("completed".equals(attempt.getAttemptStatus()) || "voided".equals(attempt.getAttemptStatus()));
+        boolean perItemReviewAllowed = summaryVisible && boolValue(resultPolicy.get("perItemReviewAllowed"), true);
+        boolean passingScoreVisible = summaryVisible && boolValue(resultPolicy.get("passingScoreVisible"), false);
+        boolean passConclusionVisible = summaryVisible && boolValue(resultPolicy.get("passConclusionVisible"), false);
+
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attemptId);
         dto.put("visibility", Map.of(
-                "summaryVisible", true,
-                "passingScoreVisible", false,
-                "passConclusionVisible", false,
-                "perItemReviewAllowed", true
+                "summaryVisible", summaryVisible,
+                "passingScoreVisible", passingScoreVisible,
+                "passConclusionVisible", passConclusionVisible,
+                "perItemReviewAllowed", perItemReviewAllowed
         ));
-        if (result != null) {
+        if (result != null && summaryVisible) {
             dto.put("totalScore", result.getTotalScore());
             dto.put("maxScore", result.getMaxScore());
-            dto.put("items", JsonHelper.parse(result.getDetailJson()));
+            if (passConclusionVisible) {
+                dto.put("passed", result.getTotalScore().compareTo(passingScore) >= 0);
+            }
+            if (passingScoreVisible) {
+                dto.put("passingScore", passingScore);
+            }
+            if (perItemReviewAllowed) {
+                dto.put("items", JsonHelper.parse(result.getDetailJson()));
+            }
         }
         return dto;
+    }
+
+    private boolean boolValue(Object value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
     }
 
     @Transactional

@@ -85,4 +85,15 @@ public class ReportController {
     public ApiResponse<Map<String, Object>> getExportJob(@PathVariable String jobId) {
         return ApiResponse.ok(reportService.getExportJob(jobId), metaFactory.build());
     }
+
+    @GetMapping("/admin/exports/{jobId}/download")
+    public ResponseEntity<byte[]> downloadExport(@PathVariable String jobId) {
+        byte[] content = reportService.downloadExport(jobId);
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"export-" + jobId + ".xlsx\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(content);
+    }
 }

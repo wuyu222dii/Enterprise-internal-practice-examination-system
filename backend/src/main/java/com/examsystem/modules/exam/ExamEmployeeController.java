@@ -34,6 +34,11 @@ public class ExamEmployeeController {
         return ApiResponse.ok(examService.getExamTaskDetail(id), metaFactory.build());
     }
 
+    @GetMapping("/{id}/active-attempt")
+    public ApiResponse<Map<String, Object>> getActiveAttempt(@PathVariable String id) {
+        return ApiResponse.ok(examService.getActiveAttemptForExam(id), metaFactory.build());
+    }
+
     @GetMapping("/records")
     public ApiResponse<PageDto<Map<String, Object>>> listRecords(
             @RequestParam(defaultValue = "1") int page,

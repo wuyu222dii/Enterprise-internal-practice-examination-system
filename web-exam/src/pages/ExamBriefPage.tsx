@@ -4,10 +4,16 @@ import { apiFetch, newIdempotencyKey } from '../api/client'
 
 type ExamDetail = Record<string, unknown>
 
+interface ActiveAttempt {
+  attemptId: string
+  attemptStatus?: string
+}
+
 export default function ExamBriefPage() {
   const { examId } = useParams<{ examId: string }>()
   const navigate = useNavigate()
   const [exam, setExam] = useState<ExamDetail | null>(null)
+  const [activeAttempt, setActiveAttempt] = useState<ActiveAttempt | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
@@ -17,8 +23,23 @@ export default function ExamBriefPage() {
     setLoading(true)
     setError('')
     try {
-      const { data } = await apiFetch<ExamDetail>(`/exams/${examId}`)
-      setExam(data)
+      const [examRes, activeRes] = await Promise.all([
+        apiFetch<ExamDetail>(`/exams/${examId}`),
+        apiFetch<Record<string, unknown>>(`/exams/${examId}/active-attempt`),
+      ])
+      setExam(examRes.data)
+
+      const attemptId = activeRes.data?.attemptId
+      if (attemptId) {
+        setActiveAttempt({
+          attemptId: String(attemptId),
+          attemptStatus: activeRes.data.attemptStatus
+            ? String(activeRes.data.attemptStatus)
+            : undefined,
+        })
+      } else {
+        setActiveAttempt(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -54,6 +75,12 @@ export default function ExamBriefPage() {
     }
   }
 
+  function handleResume() {
+    if (activeAttempt?.attemptId) {
+      navigate(`/attempts/${activeAttempt.attemptId}`, { replace: true })
+    }
+  }
+
   const title = exam
     ? String(exam.title ?? exam.examCode ?? examId)
     : examId
@@ -69,6 +96,22 @@ export default function ExamBriefPage() {
       {error && <p className="form-error">{error}</p>}
       {loading && <p>加载中…</p>}
 
+      {activeAttempt && (
+        <section className="card resume-prompt">
+          <h2>继续考试</h2>
+          <p className="resume-text">
+            您有进行中的考试
+            {activeAttempt.attemptStatus
+              ? `（${activeAttempt.attemptStatus}）`
+              : ''}
+            ，是否继续作答？
+          </p>
+          <button type="button" className="btn-primary" onClick={handleResume}>
+            继续考试
+          </button>
+        </section>
+      )}
+
       {exam && (
         <section className="card">
           <dl className="detail-list">
@@ -82,14 +125,16 @@ export default function ExamBriefPage() {
                 </div>
               ))}
           </dl>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleStart}
-            disabled={starting}
-          >
-            {starting ? '开卷中…' : '开始考试'}
-          </button>
+          {!activeAttempt && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleStart}
+              disabled={starting}
+            >
+              {starting ? '开卷中…' : '开始考试'}
+            </button>
+          )}
         </section>
       )}
     </div>

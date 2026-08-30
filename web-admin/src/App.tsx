@@ -2,12 +2,15 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { getStoredSession, getToken } from './api/client'
 import AdminLayout from './layout/AdminLayout'
 import AccountPage from './pages/AccountPage'
+import AttemptDetailPage from './pages/AttemptDetailPage'
 import AuditPage from './pages/AuditPage'
 import ChangePasswordPage from './pages/ChangePasswordPage'
 import DepartmentsPage from './pages/DepartmentsPage'
 import EmployeesPage from './pages/EmployeesPage'
+import ExamWizardPage from './pages/ExamWizardPage'
 import ExamsPage from './pages/ExamsPage'
 import ImportPage from './pages/ImportPage'
+import ImportTasksPage from './pages/ImportTasksPage'
 import LoginPage from './pages/LoginPage'
 import MonitorPage from './pages/MonitorPage'
 import QuestionBanksPage from './pages/QuestionBanksPage'
@@ -60,7 +63,11 @@ export default function App() {
           <Route path="question-banks" element={<QuestionBanksPage />} />
           <Route path="question-banks/:bankId/questions" element={<QuestionsPage />} />
           <Route path="import" element={<ImportPage />} />
+          <Route path="import/tasks" element={<ImportTasksPage />} />
           <Route path="exams" element={<ExamsPage />} />
+          <Route path="exams/wizard" element={<ExamWizardPage />} />
+          <Route path="exams/:id/wizard" element={<ExamWizardPage />} />
+          <Route path="exams/:examId/attempts/:attemptId" element={<AttemptDetailPage />} />
           <Route path="monitor" element={<MonitorPage />} />
           <Route path="scores" element={<ScoresPage />} />
           <Route path="audit" element={<AuditPage />} />

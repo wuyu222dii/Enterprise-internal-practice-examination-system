@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, clearAuth, getStoredSession } from '../api/client'
 
@@ -12,6 +12,7 @@ type ExamTask = Record<string, unknown>
 export default function TaskListPage() {
   const session = getStoredSession<SessionDto>()
   const [tasks, setTasks] = useState<ExamTask[]>([])
+  const [examCodeFilter, setExamCodeFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -31,6 +32,16 @@ export default function TaskListPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  const filteredTasks = useMemo(() => {
+    const query = examCodeFilter.trim().toLowerCase()
+    if (!query) return tasks
+    return tasks.filter((task) => {
+      const code = String(task.examCode ?? task.id ?? '').toLowerCase()
+      const title = String(task.title ?? '').toLowerCase()
+      return code.includes(query) || title.includes(query)
+    })
+  }, [tasks, examCodeFilter])
 
   function handleLogout() {
     clearAuth()
@@ -56,22 +67,36 @@ export default function TaskListPage() {
 
       {error && <p className="form-error">{error}</p>}
 
+      <section className="card filter-bar">
+        <label className="filter-label">
+          考试码筛选
+          <input
+            type="search"
+            value={examCodeFilter}
+            onChange={(e) => setExamCodeFilter(e.target.value)}
+            placeholder="输入考试码或名称"
+          />
+        </label>
+      </section>
+
       {loading ? (
         <p>加载中…</p>
-      ) : tasks.length === 0 ? (
+      ) : filteredTasks.length === 0 ? (
         <section className="card">
-          <p>暂无考试任务</p>
+          <p>{tasks.length === 0 ? '暂无考试任务' : '没有匹配的考试任务'}</p>
         </section>
       ) : (
         <ul className="task-list">
-          {tasks.map((task) => {
+          {filteredTasks.map((task) => {
             const id = String(task.id ?? task.examId ?? '')
             const title = String(task.title ?? task.examCode ?? id)
+            const examCode = String(task.examCode ?? id)
             const lifecycle = String(task.lifecycle ?? task.status ?? '—')
             return (
               <li key={id} className="card task-card">
                 <div className="task-info">
                   <h2>{title}</h2>
+                  <p className="task-meta">考试码：{examCode}</p>
                   <p className="task-meta">状态：{lifecycle}</p>
                 </div>
                 <Link to={`/exams/${id}`} className="btn-primary btn-sm">

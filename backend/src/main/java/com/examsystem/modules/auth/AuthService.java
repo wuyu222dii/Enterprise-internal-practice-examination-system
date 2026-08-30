@@ -3,10 +3,16 @@ package com.examsystem.modules.auth;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.modules.audit.AuditService;
+import com.examsystem.modules.auth.dto.BindMiniProgramRequest;
 import com.examsystem.modules.auth.dto.ChangePasswordRequest;
 import com.examsystem.modules.auth.dto.LoginRequest;
 import com.examsystem.modules.auth.dto.LoginResponse;
+import com.examsystem.modules.auth.dto.PasswordResetRequest;
 import com.examsystem.modules.auth.dto.SessionDto;
+import com.examsystem.modules.auth.dto.SmsSendRequest;
+import com.examsystem.modules.auth.dto.SmsVerifyRequest;
+import com.examsystem.modules.auth.dto.SmsVerifyResponse;
 import com.examsystem.modules.organization.entity.Employee;
 import com.examsystem.modules.organization.repository.EmployeeRepository;
 import com.examsystem.security.EmployeePrincipal;
@@ -20,6 +26,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class AuthService {
@@ -28,20 +35,26 @@ public class AuthService {
 
     private final EmployeeRepository employeeRepository;
     private final SessionService sessionService;
+    private final SmsVerificationService smsVerificationService;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
     private final int maxFailedAttempts;
     private final int lockDurationMinutes;
 
     public AuthService(
             EmployeeRepository employeeRepository,
             SessionService sessionService,
+            SmsVerificationService smsVerificationService,
             PasswordEncoder passwordEncoder,
+            AuditService auditService,
             @Value("${exam.security.max-failed-attempts:5}") int maxFailedAttempts,
             @Value("${exam.security.lock-duration-minutes:15}") int lockDurationMinutes
     ) {
         this.employeeRepository = employeeRepository;
         this.sessionService = sessionService;
+        this.smsVerificationService = smsVerificationService;
         this.passwordEncoder = passwordEncoder;
+        this.auditService = auditService;
         this.maxFailedAttempts = maxFailedAttempts;
         this.lockDurationMinutes = lockDurationMinutes;
     }
@@ -111,6 +124,78 @@ public class AuthService {
         if (principal != null && principal.getSessionToken() != null) {
             sessionService.invalidateSession(principal.getSessionToken());
         }
+    }
+
+    public void sendSms(SmsSendRequest request) {
+        smsVerificationService.sendCode(request.phone(), request.purpose());
+    }
+
+    public SmsVerifyResponse verifySms(SmsVerifyRequest request) {
+        SmsVerificationService.VerificationResult result = smsVerificationService.verifyCode(
+                request.phone(), request.code(), request.purpose());
+        return new SmsVerifyResponse(result.verificationToken(), result.expiresAt());
+    }
+
+    @Transactional
+    public void passwordReset(PasswordResetRequest request) {
+        SmsVerificationService.VerificationResult verification =
+                smsVerificationService.consumeVerificationToken(request.verificationToken());
+        if (!"resetPassword".equals(verification.purpose())) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "验证令牌用途不匹配", 401);
+        }
+
+        Employee employee = employeeRepository.findByEmployeeNo(request.employeeNo())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "员工不存在", 404));
+        if (employee.getPhone() == null || !employee.getPhone().equals(verification.phone())) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "手机号与工号不匹配", 401);
+        }
+
+        validatePasswordPolicy(request.newPassword());
+        employee.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        employee.setMustChangePassword(false);
+        employee.setFailedLoginCount(0);
+        employee.setLockedUntil(null);
+        employeeRepository.save(employee);
+        sessionService.invalidateAllSessions(employee.getId());
+    }
+
+    @Transactional
+    public void bindMiniProgram(BindMiniProgramRequest request) {
+        EmployeePrincipal principal = SecurityUtils.getCurrentPrincipal();
+        if (principal == null) {
+            throw BusinessException.of(ErrorCode.AUTH_SESSION_EXPIRED, "会话已过期", 401);
+        }
+
+        SmsVerificationService.VerificationResult verification =
+                smsVerificationService.consumeVerificationToken(request.verificationToken());
+        if (!"bindMiniProgram".equals(verification.purpose())) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "验证令牌用途不匹配", 401);
+        }
+
+        Employee employee = employeeRepository.findById(principal.getEmployeeId())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.AUTH_SESSION_EXPIRED, "会话已过期", 401));
+        if (employee.getPhone() == null || !employee.getPhone().equals(verification.phone())) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "手机号不匹配", 401);
+        }
+
+        employeeRepository.findByMiniProgramOpenId(request.miniProgramOpenId())
+                .filter(existing -> !existing.getId().equals(employee.getId()))
+                .ifPresent(existing -> {
+                    throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "该微信已绑定其他账号", 422);
+                });
+
+        String beforeOpenId = employee.getMiniProgramOpenId();
+        employee.setMiniProgramOpenId(request.miniProgramOpenId());
+        employeeRepository.save(employee);
+
+        auditService.log(
+                "miniProgram.bind",
+                "Employee",
+                employee.getId(),
+                Map.of("miniProgramOpenId", beforeOpenId),
+                Map.of("miniProgramOpenId", request.miniProgramOpenId()),
+                null
+        );
     }
 
     private void registerFailedLogin(Employee employee) {

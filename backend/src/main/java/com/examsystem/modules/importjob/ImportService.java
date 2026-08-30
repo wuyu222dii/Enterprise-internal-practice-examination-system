@@ -121,12 +121,17 @@ public class ImportService {
         preview.put("importableCount", task.getImportableCount());
         preview.put("errorCount", task.getErrorCount());
         preview.put("previewExpiresAt", Instant.now().plus(1, ChronoUnit.HOURS));
-        preview.put("pendingHierarchy", Collections.emptyMap());
+        preview.put("pendingHierarchy", buildPendingHierarchy(task));
         return preview;
     }
 
     @Transactional
     public void confirm(String id, String confirmToken) {
+        confirm(id, confirmToken, Collections.emptyMap());
+    }
+
+    @Transactional
+    public void confirm(String id, String confirmToken, Map<String, Object> hierarchyConfirm) {
         SecurityUtils.requireAdmin();
         ImportTask task = getTaskEntity(id);
         if (!"preview_ready".equals(task.getStatus())) {
@@ -139,6 +144,9 @@ public class ImportService {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
         String categoryId = questionService.getOrCreateDefaultCategory(task.getQuestionBankId());
+        if (hierarchyConfirm != null && !hierarchyConfirm.isEmpty()) {
+            categoryId = resolveCategoryFromConfirm(task.getQuestionBankId(), hierarchyConfirm, categoryId);
+        }
         for (Map<String, Object> row : validRows) {
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> options = (List<Map<String, Object>>) row.get("options");
@@ -354,6 +362,31 @@ public class ImportService {
         dto.put("errorCount", task.getErrorCount());
         dto.put("createdAt", task.getCreatedAt());
         return dto;
+    }
+
+    private Map<String, Object> buildPendingHierarchy(ImportTask task) {
+        Map<String, Object> preview = JsonHelper.toMap(task.getPreviewJson());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
+        Map<String, Object> pending = new HashMap<>();
+        List<String> categories = validRows.stream()
+                .map(row -> row.get("categoryName"))
+                .filter(v -> v != null && !String.valueOf(v).isBlank())
+                .map(String::valueOf)
+                .distinct()
+                .filter(name -> !questionService.categoryExists(task.getQuestionBankId(), name))
+                .toList();
+        if (!categories.isEmpty()) {
+            pending.put("categories", categories);
+        }
+        return pending;
+    }
+
+    private String resolveCategoryFromConfirm(String bankId, Map<String, Object> confirm, String defaultCategoryId) {
+        if (confirm.containsKey("categoryName")) {
+            return questionService.getOrCreateCategory(bankId, String.valueOf(confirm.get("categoryName")));
+        }
+        return defaultCategoryId;
     }
 
     private record ParseResult(int importableCount, int errorCount, Map<String, Object> preview) {

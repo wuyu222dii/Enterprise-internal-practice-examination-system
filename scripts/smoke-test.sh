@@ -41,4 +41,17 @@ echo "== Audit logs =="
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/admin/audit-logs?page=1&pageSize=5" | head -c 200
 echo ""
 
+echo "== SMS send =="
+curl -s -X POST "$BASE/auth/sms/send" \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"13800000000","purpose":"resetPassword"}' | head -c 200
+echo ""
+
+echo "== SMS verify =="
+SMS_RESP=$(curl -s -X POST "$BASE/auth/sms/verify" \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"13800000000","code":"123456","purpose":"resetPassword"}')
+echo "$SMS_RESP" | head -c 200
+echo ""
+
 echo "Smoke test passed"

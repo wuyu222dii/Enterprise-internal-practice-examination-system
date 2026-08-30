@@ -7,13 +7,16 @@ import com.examsystem.modules.organization.dto.CreateDepartmentRequest;
 import com.examsystem.modules.organization.dto.CreateEmployeeRequest;
 import com.examsystem.modules.organization.dto.CreateEmployeeResponse;
 import com.examsystem.modules.organization.dto.DepartmentDto;
+import com.examsystem.modules.organization.dto.EmployeeImportResponse;
 import com.examsystem.modules.organization.dto.EmployeeSummaryDto;
 import com.examsystem.modules.organization.dto.PagedEmployeesDto;
 import com.examsystem.modules.organization.dto.ResetPasswordResponse;
 import com.examsystem.modules.organization.dto.UpdateDepartmentRequest;
 import com.examsystem.modules.organization.dto.UpdateEmployeeRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,9 +24,9 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Collections;
 import java.util.List;
@@ -114,5 +117,19 @@ public class OrganizationController {
     ) {
         organizationService.updateAdminGrants(id, request);
         return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
+    }
+
+    @PostMapping("/employees/import")
+    public ApiResponse<EmployeeImportResponse> importEmployees(@RequestParam("file") MultipartFile file) {
+        return ApiResponse.ok(organizationService.importEmployees(file), metaFactory.build());
+    }
+
+    @GetMapping("/employees/credential-batches/{id}/download")
+    public ResponseEntity<byte[]> downloadCredentialBatch(@PathVariable String id) {
+        byte[] content = organizationService.downloadCredentialBatch(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"credentials-" + id + ".xlsx\"")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(content);
     }
 }

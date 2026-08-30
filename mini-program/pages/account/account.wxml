@@ -1,0 +1,71 @@
+<view class="container">
+  <view class="card">
+    <view class="title">{{forceChange ? '修改密码' : '账号设置'}}</view>
+    <view class="subtitle">MP-12 密码与微信绑定</view>
+
+    <view wx:if="{{forceChange}}" class="hint">首次登录须修改密码后才能继续使用</view>
+
+    <view class="profile">
+      <view class="profile-row">
+        <text class="label">姓名</text>
+        <text>{{displayName}}</text>
+      </view>
+      <view class="profile-row">
+        <text class="label">工号</text>
+        <text>{{employeeNo}}</text>
+      </view>
+      <view class="profile-row">
+        <text class="label">微信绑定</text>
+        <text class="{{miniProgramBound ? 'status-ok' : 'status-pending'}}">
+          {{miniProgramBound ? '已绑定' : '未绑定'}}
+        </text>
+      </view>
+    </view>
+
+    <view class="section-title">修改密码</view>
+    <input placeholder="当前密码" password value="{{currentPassword}}" bindinput="onCurrentPasswordInput" />
+    <input placeholder="新密码（至少 8 位）" password value="{{newPassword}}" bindinput="onNewPasswordInput" />
+    <input placeholder="确认新密码" password value="{{confirmPassword}}" bindinput="onConfirmPasswordInput" />
+    <button class="btn-primary" loading="{{loading}}" bindtap="onChangePassword">保存密码</button>
+
+    <view wx:if="{{!miniProgramBound}}" class="bind-section">
+      <view class="section-title">绑定微信</view>
+      <view class="hint">本地开发验证码固定为 123456</view>
+      <input placeholder="绑定手机号" type="number" value="{{bindPhone}}" bindinput="onBindPhoneInput" />
+      <button
+        wx:if="{{bindStep === 'idle'}}"
+        class="btn-secondary"
+        loading="{{bindLoading}}"
+        bindtap="onSendBindSms"
+      >
+        发送验证码
+      </button>
+      <block wx:if="{{bindStep === 'verify' || bindStep === 'ready'}}">
+        <input placeholder="验证码" value="{{bindCode}}" bindinput="onBindCodeInput" />
+        <button
+          wx:if="{{bindStep === 'verify'}}"
+          class="btn-secondary"
+          loading="{{bindLoading}}"
+          bindtap="onVerifyBindSms"
+        >
+          验证
+        </button>
+        <button
+          wx:if="{{bindStep === 'ready'}}"
+          class="btn-secondary"
+          loading="{{bindLoading}}"
+          bindtap="onBindMiniProgram"
+        >
+          完成绑定
+        </button>
+      </block>
+    </view>
+
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <view wx:if="{{success}}" class="success">{{success}}</view>
+
+    <navigator wx:if="{{!forceChange}}" url="/pages/home/home" open-type="navigateBack" class="back-link">
+      返回首页
+    </navigator>
+  </view>
+</view>

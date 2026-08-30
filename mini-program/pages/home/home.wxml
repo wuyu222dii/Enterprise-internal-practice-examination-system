@@ -6,6 +6,9 @@
     <navigator url="/pages/practice/practice" class="nav-item">
       <text>练习模式</text>
     </navigator>
+    <navigator url="/pages/wrong-book/wrong-book" class="nav-item">
+      <text>错题本</text>
+    </navigator>
     <navigator url="/pages/mock/mock" class="nav-item">
       <text>模拟考试</text>
     </navigator>
@@ -15,6 +18,9 @@
     </navigator>
     <navigator url="/pages/records/records" class="nav-item">
       <text>学习记录</text>
+    </navigator>
+    <navigator url="/pages/account/account" class="nav-item">
+      <text>账号设置</text>
     </navigator>
 
     <button class="btn-logout" bindtap="onLogout">退出登录</button>

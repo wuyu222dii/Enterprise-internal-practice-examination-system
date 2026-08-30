@@ -15,9 +15,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, String> {
 
     Optional<Employee> findByPhone(String phone);
 
+    Optional<Employee> findByMiniProgramOpenId(String miniProgramOpenId);
+
     long countByDepartmentIdAndStatus(String departmentId, String status);
 
     long countByHasOutageDispositionTrueAndStatus(String status);
+
+    long countByAdminTrueAndStatus(String status);
 
     @Query("""
             SELECT e FROM Employee e

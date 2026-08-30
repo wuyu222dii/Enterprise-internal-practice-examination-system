@@ -38,6 +38,9 @@ export default function MonitorPage() {
   const [outages, setOutages] = useState<OutageEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [pausing, setPausing] = useState(false)
+  const [confirmingId, setConfirmingId] = useState('')
 
   const loadExams = useCallback(async () => {
     setLoading(true)
@@ -80,16 +83,60 @@ export default function MonitorPage() {
     }
   }, [examId, loadMonitor])
 
+  async function handlePause() {
+    if (!examId) return
+    const reason = window.prompt('请输入暂停原因（可选）') ?? undefined
+    setPausing(true)
+    setError('')
+    setSuccess('')
+    try {
+      await apiFetch(`/admin/exams/${examId}/pause`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      setSuccess('考试已暂停')
+      await loadExams()
+      await loadMonitor(examId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '暂停失败')
+    } finally {
+      setPausing(false)
+    }
+  }
+
+  async function handleConfirmProposal(event: OutageEvent) {
+    if (!window.confirm(`确认故障事件 ${event.id} 的提案 v${event.latestProposalVersion}？`)) return
+    setConfirmingId(event.id)
+    setError('')
+    setSuccess('')
+    try {
+      await apiFetch(
+        `/admin/outage-events/${event.id}/proposals/${event.latestProposalVersion}/confirm`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ confirmationNote: '管理后台确认' }),
+        },
+      )
+      setSuccess('故障提案已确认')
+      await loadMonitor(examId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '确认失败')
+    } finally {
+      setConfirmingId('')
+    }
+  }
+
   const selectedExam = exams.find((exam) => exam.id === examId)
 
   return (
     <div className="page">
       <header className="page-header">
         <h1>考试监控</h1>
-        <p className="page-desc">AD-13 过程监控与故障事件</p>
+        <p className="page-desc">过程监控、暂停考试与故障处置</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
+      {success && <p className="form-success">{success}</p>}
 
       <section className="card">
         <h2>选择考试</h2>
@@ -117,6 +164,16 @@ export default function MonitorPage() {
             <dt>尝试总数</dt>
             <dd>{monitor.attemptCount}</dd>
           </dl>
+          {selectedExam.runStatus !== 'paused' && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handlePause}
+              disabled={pausing}
+            >
+              {pausing ? '暂停中…' : '暂停考试'}
+            </button>
+          )}
         </section>
       )}
 
@@ -133,6 +190,7 @@ export default function MonitorPage() {
                 <th>受影响考试</th>
                 <th>提案版本</th>
                 <th>创建时间</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -143,6 +201,18 @@ export default function MonitorPage() {
                   <td>{event.affectedExamIds.join(', ') || '—'}</td>
                   <td>{event.latestProposalVersion}</td>
                   <td>{new Date(event.createdAt).toLocaleString()}</td>
+                  <td>
+                    {event.status === 'detected' && (
+                      <button
+                        type="button"
+                        className="btn-text"
+                        disabled={confirmingId === event.id}
+                        onClick={() => handleConfirmProposal(event)}
+                      >
+                        {confirmingId === event.id ? '确认中…' : '确认提案'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

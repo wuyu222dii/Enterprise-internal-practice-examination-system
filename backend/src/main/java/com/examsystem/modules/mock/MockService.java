@@ -214,6 +214,14 @@ public class MockService {
                 result.getTotalElements(), page, pageSize);
     }
 
+    @Transactional
+    public void autoSubmitExpiredAttempts() {
+        List<MockAttempt> expired = attemptRepository.findByStatusAndExpiresAtBefore("in_progress", Instant.now());
+        for (MockAttempt attempt : expired) {
+            submit(attempt.getId());
+        }
+    }
+
     private void scoreAttempt(MockAttempt attempt) {
         List<MockPaperItem> items = paperItemRepository.findByMockAttemptIdOrderByItemOrderAsc(attempt.getId());
         BigDecimal total = BigDecimal.ZERO;

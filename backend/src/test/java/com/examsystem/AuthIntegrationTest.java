@@ -80,4 +80,36 @@ class AuthIntegrationTest {
         mockMvc.perform(get("/departments"))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void smsPasswordResetFlow() throws Exception {
+        mockMvc.perform(post("/auth/sms/send")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"13800009999","purpose":"resetPassword"}
+                                """))
+                .andExpect(status().isOk());
+
+        var verifyResult = mockMvc.perform(post("/auth/sms/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"13800009999","code":"123456","purpose":"resetPassword"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String token = objectMapper.readTree(verifyResult.getResponse().getContentAsString())
+                .path("data").path("verificationToken").asText();
+
+        mockMvc.perform(post("/auth/password-reset")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "employeeNo": "ADMIN001",
+                                  "verificationToken": "%s",
+                                  "newPassword": "Admin@12345"
+                                }
+                                """.formatted(token)))
+                .andExpect(status().isUnauthorized());
+    }
 }

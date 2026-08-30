@@ -85,11 +85,15 @@ public class PracticeService {
         }
 
         int count = request.questionCount() != null ? request.questionCount() : 10;
-        List<QuestionVersion> versions = questionService.findActiveVersionsByBank(request.questionBankId());
+        List<QuestionVersion> versions = selectQuestions(request, employeeId);
         if (versions.isEmpty()) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "题库暂无可用题目", 422);
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "暂无可用题目", 422);
         }
-        Collections.shuffle(versions);
+        if ("sequential".equals(request.mode())) {
+            versions.sort(java.util.Comparator.comparing(QuestionVersion::getId));
+        } else {
+            Collections.shuffle(versions);
+        }
         List<QuestionVersion> selected = versions.subList(0, Math.min(count, versions.size()));
 
         PracticeSession session = new PracticeSession();
@@ -178,17 +182,42 @@ public class PracticeService {
                 result.getTotalElements(), page, pageSize);
     }
 
-    private void upsertWrongBook(String employeeId, String questionVersionId) {
-        WrongBookEntry entry = wrongBookRepository.findByEmployeeIdAndQuestionVersionId(employeeId, questionVersionId)
-                .orElseGet(() -> {
-                    WrongBookEntry e = new WrongBookEntry();
-                    e.setId(IdGenerator.newId("wb"));
-                    e.setEmployeeId(employeeId);
-                    e.setQuestionVersionId(questionVersionId);
-                    return e;
-                });
-        entry.setStatus("pending");
-        wrongBookRepository.save(entry);
+    private List<QuestionVersion> selectQuestions(CreatePracticeSessionRequest request, String employeeId) {
+        if ("wrongBook".equals(request.mode())) {
+            List<String> versionIds = wrongBookRepository.findByEmployeeIdOrderByUpdatedAtDesc(
+                            employeeId, PageRequest.of(0, 200)).getContent().stream()
+                    .map(WrongBookEntry::getQuestionVersionId).toList();
+            return versionIds.stream()
+                    .map(questionService::requireVersion)
+                    .filter(v -> request.questionBankId().equals(findBankIdForVersion(v)))
+                    .toList();
+        }
+
+        List<QuestionVersion> versions = questionService.findActiveVersionsByBank(request.questionBankId());
+        if (request.scope() != null) {
+            if (request.scope().knowledgePointId() != null && !request.scope().knowledgePointId().isBlank()) {
+                versions = versions.stream()
+                        .filter(v -> request.scope().knowledgePointId().equals(findKnowledgePointId(v)))
+                        .toList();
+            } else if (request.scope().categoryId() != null && !request.scope().categoryId().isBlank()) {
+                versions = versions.stream()
+                        .filter(v -> request.scope().categoryId().equals(findCategoryId(v)))
+                        .toList();
+            }
+        }
+        return versions;
+    }
+
+    private String findBankIdForVersion(QuestionVersion version) {
+        return questionService.requireQuestion(version.getQuestionId()).getQuestionBankId();
+    }
+
+    private String findCategoryId(QuestionVersion version) {
+        return questionService.requireQuestion(version.getQuestionId()).getCategoryId();
+    }
+
+    private String findKnowledgePointId(QuestionVersion version) {
+        return questionService.requireQuestion(version.getQuestionId()).getKnowledgePointId();
     }
 
     private PracticeSession getSessionEntity(String id) {
@@ -201,6 +230,19 @@ public class PracticeService {
         dto.put("id", bank.getId());
         dto.put("name", bank.getName());
         return dto;
+    }
+
+    private void upsertWrongBook(String employeeId, String questionVersionId) {
+        WrongBookEntry entry = wrongBookRepository.findByEmployeeIdAndQuestionVersionId(employeeId, questionVersionId)
+                .orElseGet(() -> {
+                    WrongBookEntry e = new WrongBookEntry();
+                    e.setId(IdGenerator.newId("wb"));
+                    e.setEmployeeId(employeeId);
+                    e.setQuestionVersionId(questionVersionId);
+                    return e;
+                });
+        entry.setStatus("pending");
+        wrongBookRepository.save(entry);
     }
 
     private Map<String, Object> sessionToDto(PracticeSession session) {

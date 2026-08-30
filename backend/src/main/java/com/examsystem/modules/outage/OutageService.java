@@ -1,5 +1,6 @@
 package com.examsystem.modules.outage;
 
+import com.examsystem.modules.audit.AuditService;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
@@ -32,17 +33,20 @@ public class OutageService {
     private final OutageProposalRepository proposalRepository;
     private final ExamRepository examRepository;
     private final ExamAttemptRepository attemptRepository;
+    private final AuditService auditService;
 
     public OutageService(
             OutageEventRepository eventRepository,
             OutageProposalRepository proposalRepository,
             ExamRepository examRepository,
-            ExamAttemptRepository attemptRepository
+            ExamAttemptRepository attemptRepository,
+            AuditService auditService
     ) {
         this.eventRepository = eventRepository;
         this.proposalRepository = proposalRepository;
         this.examRepository = examRepository;
         this.attemptRepository = attemptRepository;
+        this.auditService = auditService;
     }
 
     public PageDto<Map<String, Object>> listEvents(int page, int pageSize) {
@@ -77,6 +81,14 @@ public class OutageService {
         applyProposalCompensation(event, proposal);
         event.setStatus("resolved");
         eventRepository.save(event);
+        auditService.log(
+                "outage.confirm",
+                "OutageEvent",
+                eventId,
+                Map.of("status", "detected", "proposalVersion", version),
+                Map.of("status", "resolved", "note", note != null ? note : ""),
+                note
+        );
     }
 
     @Transactional
@@ -88,6 +100,8 @@ public class OutageService {
         proposal.setDecidedBy(SecurityUtils.requirePrincipal().getEmployeeId());
         proposal.setDecidedAt(Instant.now());
         proposalRepository.save(proposal);
+        auditService.log("outage.reject", "OutageEvent", eventId,
+                Map.of("proposalVersion", version), Map.of("status", "rejected"), reason);
     }
 
     @Transactional
@@ -106,7 +120,20 @@ public class OutageService {
         proposal.setVersion(1);
         proposal.setProposalJson(JsonHelper.toJson(Map.of("extendMinutes", 15)));
         proposalRepository.save(proposal);
+        auditService.log("outage.create", "OutageEvent", event.getId(), null,
+                Map.of("affectedExamIds", affectedExamIds), null);
         return eventToDto(event);
+    }
+
+    @Transactional
+    public void pauseExam(String examId, String reason) {
+        requireOutageAuthorized();
+        Exam exam = examRepository.findById(examId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "考试不存在", 404));
+        exam.setRunStatus("paused");
+        examRepository.save(exam);
+        auditService.log("exam.pause", "Exam", examId,
+                Map.of("runStatus", "normal"), Map.of("runStatus", "paused"), reason);
     }
 
     private void applyProposalCompensation(OutageEvent event, OutageProposal proposal) {

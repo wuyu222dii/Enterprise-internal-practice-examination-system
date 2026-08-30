@@ -79,7 +79,13 @@ public class ImportController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody Map<String, Object> body
     ) {
-        Runnable action = () -> importService.confirm(id, String.valueOf(body.get("confirmToken")));
+        Runnable action = () -> {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> hierarchyConfirm = body.get("hierarchyConfirm") instanceof Map<?, ?> map
+                    ? (Map<String, Object>) map
+                    : Collections.emptyMap();
+            importService.confirm(id, String.valueOf(body.get("confirmToken")), hierarchyConfirm);
+        };
         if (idempotencyKey != null) {
             idempotencyService.execute(idempotencyKey, "import:confirm:" + id, Object.class, () -> {
                 action.run();

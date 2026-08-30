@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 
 interface ExamSummary {
@@ -221,6 +222,7 @@ export default function ScoresPage() {
                 <th>状态</th>
                 <th>得分</th>
                 <th>满分</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -231,6 +233,9 @@ export default function ScoresPage() {
                   <td>{row.attemptStatus}</td>
                   <td>{row.totalScore ?? '—'}</td>
                   <td>{row.maxScore ?? '—'}</td>
+                  <td>
+                    <Link to={`/exams/${examId}/attempts/${row.attemptId}`}>详情</Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

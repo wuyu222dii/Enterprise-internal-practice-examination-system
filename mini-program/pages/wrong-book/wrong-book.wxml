@@ -1,0 +1,20 @@
+<view class="container">
+  <view class="card">
+    <view class="title">错题本</view>
+    <view class="subtitle">MP-04 练习错题汇总</view>
+
+    <view wx:if="{{loading}}">加载中…</view>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+
+    <view wx:if="{{!loading && entries.length === 0}}" class="stub">暂无错题记录</view>
+
+    <view wx:for="{{entries}}" wx:key="id" class="entry-item">
+      <view class="entry-title">题目 {{item.questionVersionId}}</view>
+      <view class="entry-meta">状态：{{item.status}} · {{item.updatedAt}}</view>
+    </view>
+
+    <view wx:if="{{total > 0}}" class="summary">共 {{total}} 条错题</view>
+
+    <navigator url="/pages/home/home" open-type="navigateBack" class="back-link">返回首页</navigator>
+  </view>
+</view>

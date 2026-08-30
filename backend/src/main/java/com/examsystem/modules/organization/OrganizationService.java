@@ -10,6 +10,7 @@ import com.examsystem.modules.organization.dto.CreateDepartmentRequest;
 import com.examsystem.modules.organization.dto.CreateEmployeeRequest;
 import com.examsystem.modules.organization.dto.CreateEmployeeResponse;
 import com.examsystem.modules.organization.dto.DepartmentDto;
+import com.examsystem.modules.organization.dto.EmployeeImportResponse;
 import com.examsystem.modules.organization.dto.EmployeeSummaryDto;
 import com.examsystem.modules.organization.dto.PagedEmployeesDto;
 import com.examsystem.modules.organization.dto.ResetPasswordResponse;
@@ -17,8 +18,11 @@ import com.examsystem.modules.organization.dto.UpdateDepartmentRequest;
 import com.examsystem.modules.organization.dto.UpdateEmployeeRequest;
 import com.examsystem.modules.organization.entity.Department;
 import com.examsystem.modules.organization.entity.Employee;
+import com.examsystem.modules.organization.entity.EmployeeCredentialBatch;
 import com.examsystem.modules.organization.repository.DepartmentRepository;
+import com.examsystem.modules.organization.repository.EmployeeCredentialBatchRepository;
 import com.examsystem.modules.organization.repository.EmployeeRepository;
+import com.examsystem.security.SecurityUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +45,9 @@ public class OrganizationService {
 
     private final DepartmentRepository departmentRepository;
     private final EmployeeRepository employeeRepository;
+    private final EmployeeCredentialBatchRepository credentialBatchRepository;
+    private final CredentialBatchStore credentialBatchStore;
+    private final EmployeeImportService employeeImportService;
     private final PasswordEncoder passwordEncoder;
     private final SessionService sessionService;
     private final AuditService auditService;
@@ -47,12 +55,18 @@ public class OrganizationService {
     public OrganizationService(
             DepartmentRepository departmentRepository,
             EmployeeRepository employeeRepository,
+            EmployeeCredentialBatchRepository credentialBatchRepository,
+            CredentialBatchStore credentialBatchStore,
+            EmployeeImportService employeeImportService,
             PasswordEncoder passwordEncoder,
             SessionService sessionService,
             AuditService auditService
     ) {
         this.departmentRepository = departmentRepository;
         this.employeeRepository = employeeRepository;
+        this.credentialBatchRepository = credentialBatchRepository;
+        this.credentialBatchStore = credentialBatchStore;
+        this.employeeImportService = employeeImportService;
         this.passwordEncoder = passwordEncoder;
         this.sessionService = sessionService;
         this.auditService = auditService;
@@ -223,9 +237,18 @@ public class OrganizationService {
             employee.setPhone(blankToNull(request.phone()));
         }
         if (request.status() != null) {
+            String oldStatus = employee.getStatus();
             employee.setStatus(request.status());
             if ("disabled".equals(request.status())) {
                 sessionService.invalidateAllSessions(employee.getId());
+                auditService.log(
+                        "employee.disable",
+                        "Employee",
+                        employee.getId(),
+                        Map.of("status", oldStatus),
+                        Map.of("status", "disabled"),
+                        null
+                );
             }
         }
 
@@ -258,6 +281,13 @@ public class OrganizationService {
                 ? request.hasOutageDisposition()
                 : employee.isHasOutageDisposition();
 
+        if (employee.isAdmin() && !newAdmin) {
+            long remainingAdmins = employeeRepository.countByAdminTrueAndStatus("active");
+            if (remainingAdmins <= 1) {
+                throw BusinessException.of(ErrorCode.ORG_LAST_ADMIN, "不能移除最后一位管理员", 422);
+            }
+        }
+
         if (employee.isHasOutageDisposition() && !newOutageDisposition) {
             long remaining = employeeRepository.countByHasOutageDispositionTrueAndStatus("active");
             if (remaining <= 1) {
@@ -269,9 +299,48 @@ public class OrganizationService {
             }
         }
 
+        Map<String, Object> before = Map.of(
+                "isAdmin", employee.isAdmin(),
+                "hasOutageDisposition", employee.isHasOutageDisposition()
+        );
         employee.setAdmin(newAdmin);
         employee.setHasOutageDisposition(newOutageDisposition);
         employeeRepository.save(employee);
+        auditService.log(
+                "adminGrants.update",
+                "Employee",
+                employee.getId(),
+                before,
+                Map.of("isAdmin", newAdmin, "hasOutageDisposition", newOutageDisposition),
+                request.reason()
+        );
+    }
+
+    public EmployeeImportResponse importEmployees(org.springframework.web.multipart.MultipartFile file) {
+        return employeeImportService.importEmployees(file);
+    }
+
+    public byte[] downloadCredentialBatch(String batchId) {
+        EmployeeCredentialBatch batch = credentialBatchRepository.findById(batchId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "凭据批次不存在", 404));
+
+        String currentUserId = SecurityUtils.requirePrincipal().getEmployeeId();
+        if (!batch.getCreatedBy().equals(currentUserId)) {
+            throw BusinessException.of(ErrorCode.SEC_FORBIDDEN, "无权下载该凭据批次", 403);
+        }
+        if (batch.getExpiresAt().isBefore(Instant.now())) {
+            throw BusinessException.of(ErrorCode.ORG_CREDENTIAL_BATCH_EXPIRED, "凭据批次已过期", 410);
+        }
+        if (batch.getDownloadedAt() != null) {
+            throw BusinessException.of(ErrorCode.ORG_CREDENTIAL_ALREADY_DOWNLOADED, "凭据已下载过", 410);
+        }
+
+        byte[] content = credentialBatchStore.get(batchId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "凭据文件不存在", 404));
+
+        batch.setDownloadedAt(Instant.now());
+        credentialBatchRepository.save(batch);
+        return content;
     }
 
     private void moveDepartment(Department department, String newParentId) {

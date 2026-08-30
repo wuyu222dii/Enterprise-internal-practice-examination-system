@@ -219,6 +219,10 @@ public class QuestionService {
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "题目版本不存在", 404));
     }
 
+    public Question requireQuestion(String questionId) {
+        return getQuestionEntity(questionId);
+    }
+
     public QuestionBank requireActiveBank(String bankId) {
         QuestionBank bank = getBank(bankId);
         if (!"active".equals(bank.getStatus())) {
@@ -238,6 +242,26 @@ public class QuestionService {
                     category.setId(IdGenerator.newId("cat"));
                     category.setQuestionBankId(bankId);
                     category.setName("导入默认");
+                    categoryRepository.save(category);
+                    return category.getId();
+                });
+    }
+
+    public boolean categoryExists(String bankId, String name) {
+        return categoryRepository.findByQuestionBankIdAndName(bankId, name).isPresent();
+    }
+
+    @Transactional
+    public String getOrCreateCategory(String bankId, String name) {
+        SecurityUtils.requireAdmin();
+        getBank(bankId);
+        return categoryRepository.findByQuestionBankIdAndName(bankId, name)
+                .map(Category::getId)
+                .orElseGet(() -> {
+                    Category category = new Category();
+                    category.setId(IdGenerator.newId("cat"));
+                    category.setQuestionBankId(bankId);
+                    category.setName(name);
                     categoryRepository.save(category);
                     return category.getId();
                 });

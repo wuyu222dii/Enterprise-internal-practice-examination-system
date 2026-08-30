@@ -31,7 +31,11 @@ Page({
         if (res.statusCode === 200 && res.data && res.data.data) {
           const { token, session } = res.data.data
           app.setAuth(token, session)
-          wx.redirectTo({ url: '/pages/home/home' })
+          if (session.mustChangePassword) {
+            wx.redirectTo({ url: '/pages/account/account?forceChange=1' })
+          } else {
+            wx.redirectTo({ url: '/pages/home/home' })
+          }
         } else {
           const msg = res.data?.error?.message || '登录失败'
           this.setData({ error: msg })

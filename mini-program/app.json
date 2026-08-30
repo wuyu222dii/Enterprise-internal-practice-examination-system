@@ -4,11 +4,13 @@
     "pages/home/home",
     "pages/practice/practice",
     "pages/practice-session/practice-session",
+    "pages/wrong-book/wrong-book",
     "pages/mock/mock",
     "pages/mock-exam/mock-exam",
     "pages/exam-tasks/exam-tasks",
     "pages/exam-detail/exam-detail",
-    "pages/records/records"
+    "pages/records/records",
+    "pages/account/account"
   ],
   "window": {
     "navigationBarBackgroundColor": "#1B4B8A",
