@@ -16,13 +16,17 @@ interface ImportTaskDto {
 }
 
 interface ValidRow {
+  sheetName?: string
   rowNum: number
   type: string
   stem: string
   difficulty: string
+  categoryName?: string
+  knowledgePointName?: string
 }
 
 interface ErrorRow {
+  sheetName?: string
   rowNum: number
   message: string
 }
@@ -37,7 +41,21 @@ interface ImportPreview {
   errorRows: ErrorRow[]
   pendingHierarchy?: {
     categories?: string[]
+    knowledgePoints?: { category: string; name: string }[]
   }
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  singleChoice: '单选',
+  multipleChoice: '多选',
+  trueFalse: '判断',
+  essay: '解答题',
+}
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  easy: '简单',
+  medium: '中等',
+  hard: '困难',
 }
 
 export default function ImportPage() {
@@ -52,7 +70,6 @@ export default function ImportPage() {
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
   const [hierarchyConfirmed, setHierarchyConfirmed] = useState(false)
-  const [hierarchyCategory, setHierarchyCategory] = useState('')
 
   useEffect(() => {
     apiFetch<QuestionBankDto[]>('/question-banks')
@@ -63,9 +80,9 @@ export default function ImportPage() {
   const loadPreview = useCallback(async (taskId: string) => {
     const { data } = await apiFetch<ImportPreview>(`/import/tasks/${taskId}/preview`)
     setPreview(data)
-    const pending = data.pendingHierarchy?.categories ?? []
-    setHierarchyCategory(pending[0] ?? '')
-    setHierarchyConfirmed(pending.length === 0)
+    const pendingCats = data.pendingHierarchy?.categories ?? []
+    const pendingKps = data.pendingHierarchy?.knowledgePoints ?? []
+    setHierarchyConfirmed(pendingCats.length === 0 && pendingKps.length === 0)
   }, [])
 
   useEffect(() => {
@@ -115,23 +132,22 @@ export default function ImportPage() {
 
   async function handleConfirm() {
     if (!task || !preview?.confirmToken) return
-    const pending = preview.pendingHierarchy?.categories ?? []
-    if (pending.length > 0 && !hierarchyConfirmed) {
-      setError('存在未知分类，请确认创建后再导入')
+    const pendingCats = preview.pendingHierarchy?.categories ?? []
+    const pendingKps = preview.pendingHierarchy?.knowledgePoints ?? []
+    if ((pendingCats.length > 0 || pendingKps.length > 0) && !hierarchyConfirmed) {
+      setError('存在未知分类或知识点，请确认创建后再导入')
       return
     }
     setConfirming(true)
     setError('')
     try {
-      const hierarchyConfirm =
-        pending.length > 0 && hierarchyCategory
-          ? { categoryName: hierarchyCategory }
-          : undefined
+      const needsHierarchy = pendingCats.length > 0 || pendingKps.length > 0
       await apiFetch(`/import/tasks/${task.id}/confirm`, {
         method: 'POST',
         body: JSON.stringify({
           confirmToken: preview.confirmToken,
-          ...(hierarchyConfirm ? { hierarchyConfirm } : {}),
+          confirmPendingHierarchy: needsHierarchy,
+          ...(needsHierarchy ? { hierarchyConfirm: { confirmPendingHierarchy: true } } : {}),
         }),
       })
       setConfirmed(true)
@@ -186,6 +202,9 @@ export default function ImportPage() {
 
       <section className="card">
         <h2>上传 Excel</h2>
+        <p className="page-desc">
+          支持历史题库九列模板（一级科目、题型、题目内容、正确答案）以及分类/题干分列的标准模板。题目内容里题干与选项请用 Alt+Enter 换行。
+        </p>
         <form className="inline-form" onSubmit={handleUpload}>
           <label>
             目标题库
@@ -238,7 +257,10 @@ export default function ImportPage() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>工作表</th>
                     <th>行号</th>
+                    <th>分类</th>
+                    <th>知识点</th>
                     <th>题型</th>
                     <th>题干</th>
                     <th>难度</th>
@@ -246,11 +268,14 @@ export default function ImportPage() {
                 </thead>
                 <tbody>
                   {preview.validRows.slice(0, 20).map((row) => (
-                    <tr key={row.rowNum}>
+                    <tr key={`${row.sheetName ?? ''}-${row.rowNum}`}>
+                      <td>{row.sheetName ?? '—'}</td>
                       <td>{row.rowNum}</td>
-                      <td>{row.type}</td>
+                      <td>{row.categoryName ?? '—'}</td>
+                      <td>{row.knowledgePointName ?? '—'}</td>
+                      <td>{TYPE_LABELS[row.type] ?? row.type}</td>
                       <td>{row.stem}</td>
-                      <td>{row.difficulty}</td>
+                      <td>{DIFFICULTY_LABELS[row.difficulty] ?? row.difficulty}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -264,13 +289,15 @@ export default function ImportPage() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>工作表</th>
                     <th>行号</th>
                     <th>错误说明</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.errorRows.map((row) => (
-                    <tr key={row.rowNum}>
+                    <tr key={`${row.sheetName ?? ''}-${row.rowNum}`}>
+                      <td>{row.sheetName ?? '—'}</td>
                       <td>{row.rowNum}</td>
                       <td>{row.message}</td>
                     </tr>
@@ -282,42 +309,52 @@ export default function ImportPage() {
 
           {preview.importableCount > 0 && !confirmed && task?.status === 'preview_ready' && (
             <div style={{ marginTop: '1rem' }}>
-              {(preview.pendingHierarchy?.categories?.length ?? 0) > 0 && (
+              {(preview.pendingHierarchy?.categories?.length ?? 0) > 0
+                || (preview.pendingHierarchy?.knowledgePoints?.length ?? 0) > 0 ? (
                 <div className="hierarchy-confirm">
-                  <p>Excel 中含未知分类，确认后将创建并作为导入目标分类：</p>
-                  <ul>
-                    {preview.pendingHierarchy?.categories?.map((name) => (
-                      <li key={name}>{name}</li>
-                    ))}
-                  </ul>
-                  <label>
-                    创建并归入
-                    <select
-                      value={hierarchyCategory}
-                      onChange={(e) => setHierarchyCategory(e.target.value)}
-                    >
-                      {preview.pendingHierarchy?.categories?.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <p>Excel 中含未知分类或知识点，确认后将一并创建并归入对应题目：</p>
+                  {(preview.pendingHierarchy?.categories?.length ?? 0) > 0 && (
+                    <>
+                      <p>待建分类</p>
+                      <ul>
+                        {preview.pendingHierarchy?.categories?.map((name) => (
+                          <li key={name}>{name}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {(preview.pendingHierarchy?.knowledgePoints?.length ?? 0) > 0 && (
+                    <>
+                      <p>待建知识点</p>
+                      <ul>
+                        {preview.pendingHierarchy?.knowledgePoints?.map((item) => (
+                          <li key={`${item.category}-${item.name}`}>
+                            {item.category} / {item.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
                       checked={hierarchyConfirmed}
                       onChange={(e) => setHierarchyConfirmed(e.target.checked)}
                     />
-                    确认创建未知分类
+                    确认创建未知分类和知识点
                   </label>
                 </div>
-              )}
+              ) : null}
               <button
                 type="button"
                 className="btn-primary"
                 onClick={handleConfirm}
-                disabled={confirming || ((preview.pendingHierarchy?.categories?.length ?? 0) > 0 && !hierarchyConfirmed)}
+                disabled={
+                  confirming
+                  || (((preview.pendingHierarchy?.categories?.length ?? 0) > 0
+                    || (preview.pendingHierarchy?.knowledgePoints?.length ?? 0) > 0)
+                    && !hierarchyConfirmed)
+                }
               >
                 {confirming ? '导入中…' : `确认导入 ${preview.importableCount} 题`}
               </button>

@@ -175,4 +175,74 @@ class PublishExamIntegrationTest {
                 .andExpect(jsonPath("$.data.passed").doesNotExist())
                 .andExpect(jsonPath("$.data.items").doesNotExist());
     }
+
+    @Test
+    void publishFromFixedBankIncludesEveryActiveQuestionInBankOrder() throws Exception {
+        String adminToken = TestAuthHelper.loginAdmin(mockMvc, objectMapper);
+        String examToken = TestAuthHelper.loginAdminForExamClient(mockMvc, objectMapper);
+
+        MvcResult create = mockMvc.perform(post("/admin/exams")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"整库入卷考试\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String examId = objectMapper.readTree(create.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+
+        mockMvc.perform(put("/admin/exams/" + examId + "/wizard/basic")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"整库入卷考试","openStartAt":"%s"}
+                                """.formatted(java.time.Instant.now().minusSeconds(60))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/admin/exams/" + examId + "/wizard/rules")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "paperMode": "fixedBank",
+                                  "fixedBankId": "qb_demo",
+                                  "scorePerQuestion": 2,
+                                  "durationMinutes": 60,
+                                  "maxAttempts": 1,
+                                  "passingScore": 10
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/admin/exams/" + examId + "/wizard/assignees")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"mode":"selected","employeeIds":["emp_admin"]}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/admin/exams/" + examId + "/preflight")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ready").value(true));
+
+        mockMvc.perform(post("/admin/exams/" + examId + "/publish")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        String attemptId = TestExamHelper.startAttempt(mockMvc, objectMapper, examToken, examId);
+        MvcResult paper = mockMvc.perform(get("/attempts/" + attemptId + "/paper")
+                        .header("Authorization", "Bearer " + examToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(10))
+                .andReturn();
+        JsonNode items = objectMapper.readTree(paper.getResponse().getContentAsString())
+                .path("data").path("items");
+        assertThat(items).hasSize(10);
+        java.util.Set<String> stems = new java.util.HashSet<>();
+        items.forEach(item -> stems.add(item.path("stem").asText()));
+        assertThat(stems).anyMatch(stem -> stem.contains("演示题 1"));
+        assertThat(stems).anyMatch(stem -> stem.contains("演示题 10"));
+        assertThat(items.get(0).path("score").asDouble()).isEqualTo(2.0);
+    }
 }

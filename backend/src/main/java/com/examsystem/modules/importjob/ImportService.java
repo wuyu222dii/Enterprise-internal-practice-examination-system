@@ -13,8 +13,7 @@ import com.examsystem.modules.question.QuestionService;
 import com.examsystem.modules.question.dto.CreateQuestionRequest;
 import com.examsystem.modules.question.dto.QuestionVersionInput;
 import com.examsystem.security.SecurityUtils;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -28,12 +27,14 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,11 +43,21 @@ import java.util.UUID;
 @Service
 public class ImportService {
 
-    private static final int MAX_ROWS = 1000;
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
-    private static final Set<String> VALID_TYPES = Set.of("singleChoice", "multipleChoice", "trueFalse", "essay");
-    private static final Set<String> VALID_DIFFICULTIES = Set.of("easy", "medium", "hard");
-    private static final String[] TEMPLATE_HEADERS = {"type", "stem", "options", "standardAnswer", "difficulty"};
+    private static final String[] TEMPLATE_HEADERS = {
+            "一级科目", "二级科目", "三级科目", "题型", "难易度", "题目内容", "正确答案", "答案选项数量", "试题类型"
+    };
+    private static final String[] TEMPLATE_HINTS = {
+            "必填，一级目录。",
+            "二级目录。没有可以为空,不能跨级录入",
+            "三级目录。没有可以为空,不能跨级录入",
+            "必填，只能填写“判断、单选、多选”其中之一，不能有空格",
+            "必填，只能填写“易、中、难”或“简单、一般、困难”",
+            "必填。单选/多选把题干和选项写在同一格，题干与选项、选项之间必须换行（Alt+Enter）；判断题只写题干",
+            "必填。单选填 A；多选填 AC 或 A,C；判断填 对/错 或 正确/错误",
+            "选填，选项个数，用于校验",
+            "选填，初培、复审，可同时填写“初培、复审”"
+    };
 
     private static final int CONFIRM_TTL_DAYS = 30;
 
@@ -54,7 +65,6 @@ public class ImportService {
     private final QuestionService questionService;
     private final AuditService auditService;
     private final FileStore fileStore;
-    private final DataFormatter dataFormatter = new DataFormatter();
 
     public ImportService(
             ImportTaskRepository importTaskRepository,
@@ -72,10 +82,30 @@ public class ImportService {
         SecurityUtils.requireAdmin();
         questionService.requireActiveBank(questionBankId);
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet("questions");
+            Sheet sheet = workbook.createSheet("题库模板说明");
+            CellStyle wrap = workbook.createCellStyle();
+            wrap.setWrapText(true);
             Row header = sheet.createRow(0);
+            Row hints = sheet.createRow(1);
             for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
                 header.createCell(i).setCellValue(TEMPLATE_HEADERS[i]);
+                hints.createCell(i).setCellValue(TEMPLATE_HINTS[i]);
+                hints.getCell(i).setCellStyle(wrap);
+            }
+            writeTemplateExample(sheet, 2, "企业主要负责人", "一般行业", "", "单选", "易",
+                    "为了加强安全生产工作，防止和减少生产安全事故，保障人民群众生命和财产安全，促进经济社会持续健康发展，以上描述了（）的立法目的。\nA．《安全生产法》\nB．《矿山安全法》\nC．《道路交通安全法》\nD．《消防法》",
+                    "A", "4", "初培、复审");
+            writeTemplateExample(sheet, 3, "企业主要负责人", "一般行业", "", "多选", "中",
+                    "生产经营单位必须执行依法制定的保障安全生产的（）标准。\nA．国家\nB．地方\nC．行业\nD．合同约定",
+                    "AC", "4", "初培");
+            writeTemplateExample(sheet, 4, "企业主要负责人", "一般行业", "", "判断", "易",
+                    "生产经营单位必须依法参加工伤保险，为从业人员缴纳保险费。",
+                    "对", "2", "初培、复审");
+            sheet.setColumnWidth(5, 80 * 256);
+            for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
+                if (i != 5) {
+                    sheet.setColumnWidth(i, 16 * 256);
+                }
             }
             workbook.write(out);
             return out.toByteArray();
@@ -104,7 +134,7 @@ public class ImportService {
         } catch (IOException e) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "无法读取上传文件", 422);
         }
-        ParseResult parseResult = parseExcel(new ByteArrayInputStream(bytes));
+        QuestionImportParser.ParseResult parseResult = QuestionImportParser.parse(new ByteArrayInputStream(bytes));
 
         ImportTask task = new ImportTask();
         task.setId(IdGenerator.newId("imp"));
@@ -164,26 +194,50 @@ public class ImportService {
         Map<String, Object> preview = JsonHelper.toMap(task.getPreviewJson());
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
-        String categoryId = questionService.getOrCreateDefaultCategory(task.getQuestionBankId());
-        if (hierarchyConfirm != null && !hierarchyConfirm.isEmpty()) {
-            categoryId = resolveCategoryFromConfirm(task.getQuestionBankId(), hierarchyConfirm, categoryId);
+        Map<String, Object> pending = buildPendingHierarchy(task);
+        if (hasPendingHierarchy(pending) && !isHierarchyConfirmed(hierarchyConfirm)) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "存在未知分类或知识点，请确认后再导入", 422);
         }
+        Map<String, String> categoryIds = new HashMap<>();
+        Map<String, String> knowledgePointIds = new HashMap<>();
+        String defaultCategoryId = null;
         for (Map<String, Object> row : validRows) {
+            String categoryName = blankToNull(row.get("categoryName"));
+            String categoryId;
+            if (categoryName == null) {
+                if (defaultCategoryId == null) {
+                    defaultCategoryId = questionService.getOrCreateDefaultCategory(task.getQuestionBankId());
+                }
+                categoryId = defaultCategoryId;
+            } else {
+                categoryId = categoryIds.computeIfAbsent(categoryName,
+                        name -> questionService.getOrCreateCategory(task.getQuestionBankId(), name));
+            }
+            String knowledgePointName = blankToNull(row.get("knowledgePointName"));
+            String knowledgePointId = null;
+            if (knowledgePointName != null) {
+                String kpKey = categoryId + "\n" + knowledgePointName;
+                knowledgePointId = knowledgePointIds.computeIfAbsent(kpKey,
+                        ignored -> questionService.getOrCreateKnowledgePoint(categoryId, knowledgePointName));
+            }
             @SuppressWarnings("unchecked")
-            List<Map<String, Object>> options = (List<Map<String, Object>>) row.get("options");
-            @SuppressWarnings("unchecked")
-            List<String> standardAnswer = ((List<?>) row.get("standardAnswer")).stream()
-                    .map(String::valueOf).toList();
+            List<Map<String, Object>> options = row.get("options") instanceof List<?> list
+                    ? (List<Map<String, Object>>) list : List.of();
+            List<String> standardAnswer = row.get("standardAnswer") instanceof List<?> list
+                    ? list.stream().map(String::valueOf).toList() : List.of();
             QuestionVersionInput version = new QuestionVersionInput(
                     String.valueOf(row.get("type")),
                     String.valueOf(row.get("stem")),
                     options,
                     standardAnswer,
-                    null,
+                    blankToNull(row.get("explanation")),
                     row.get("difficulty") != null ? String.valueOf(row.get("difficulty")) : "medium",
-                    null
+                    toScore(row.get("defaultScore"))
             );
-            questionService.createQuestion(task.getQuestionBankId(), new CreateQuestionRequest(categoryId, null, version));
+            questionService.createQuestion(
+                    task.getQuestionBankId(),
+                    new CreateQuestionRequest(categoryId, knowledgePointId, version)
+            );
         }
         task.setStatus("completed");
         task.setConfirmToken(null);
@@ -224,13 +278,15 @@ public class ImportService {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("errors");
             Row header = sheet.createRow(0);
-            header.createCell(0).setCellValue("rowNum");
-            header.createCell(1).setCellValue("message");
+            header.createCell(0).setCellValue("sheetName");
+            header.createCell(1).setCellValue("rowNum");
+            header.createCell(2).setCellValue("message");
             int rowIdx = 1;
             for (Map<String, Object> error : errorRows) {
                 Row row = sheet.createRow(rowIdx++);
-                row.createCell(0).setCellValue(((Number) error.get("rowNum")).intValue());
-                row.createCell(1).setCellValue(String.valueOf(error.get("message")));
+                row.createCell(0).setCellValue(error.get("sheetName") == null ? "" : String.valueOf(error.get("sheetName")));
+                row.createCell(1).setCellValue(((Number) error.get("rowNum")).intValue());
+                row.createCell(2).setCellValue(String.valueOf(error.get("message")));
             }
             workbook.write(out);
             return out.toByteArray();
@@ -239,137 +295,30 @@ public class ImportService {
         }
     }
 
-    private ParseResult parseExcel(InputStream inputStream) {
-        try (Workbook workbook = new XSSFWorkbook(inputStream)) {
-            Sheet sheet = workbook.getSheetAt(0);
-            if (sheet.getPhysicalNumberOfRows() == 0) {
-                throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 文件为空", 422);
-            }
-            Row headerRow = sheet.getRow(0);
-            validateHeader(headerRow);
-
-            List<Map<String, Object>> validRows = new ArrayList<>();
-            List<Map<String, Object>> errorRows = new ArrayList<>();
-            int dataRowCount = 0;
-
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (row == null || isEmptyRow(row)) {
-                    continue;
-                }
-                dataRowCount++;
-                if (dataRowCount > MAX_ROWS) {
-                    throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "超过 1000 行数据限制", 422);
-                }
-                int rowNum = i + 1;
-                String type = cellValue(row, 0);
-                String stem = cellValue(row, 1);
-                String optionsRaw = cellValue(row, 2);
-                String standardAnswerRaw = cellValue(row, 3);
-                String difficulty = cellValue(row, 4);
-
-                List<String> errors = validateRow(type, stem, optionsRaw, standardAnswerRaw, difficulty);
-                if (!errors.isEmpty()) {
-                    Map<String, Object> errorRow = new HashMap<>();
-                    errorRow.put("rowNum", rowNum);
-                    errorRow.put("message", String.join("; ", errors));
-                    errorRows.add(errorRow);
-                    continue;
-                }
-
-                Map<String, Object> validRow = new HashMap<>();
-                validRow.put("rowNum", rowNum);
-                validRow.put("type", type.trim());
-                validRow.put("stem", stem.trim());
-                validRow.put("options", optionsRaw.isBlank() ? List.of() : JsonHelper.parse(optionsRaw.trim()));
-                validRow.put("standardAnswer", JsonHelper.parse(standardAnswerRaw.trim()));
-                validRow.put("difficulty", difficulty.isBlank() ? "medium" : difficulty.trim());
-                validRows.add(validRow);
-            }
-
-            Map<String, Object> preview = new HashMap<>();
-            preview.put("validRows", validRows);
-            preview.put("errorRows", errorRows);
-            return new ParseResult(validRows.size(), errorRows.size(), preview);
-        } catch (BusinessException e) {
-            throw e;
-        } catch (IOException e) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 解析失败", 422);
-        }
-    }
-
-    private void validateHeader(Row headerRow) {
-        if (headerRow == null) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "缺少表头行", 422);
-        }
-        for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
-            String expected = TEMPLATE_HEADERS[i];
-            String actual = cellValue(headerRow, i).trim();
-            if (!expected.equalsIgnoreCase(actual)) {
-                throw BusinessException.of(ErrorCode.VALIDATION_ERROR,
-                        "表头第 " + (i + 1) + " 列应为 " + expected + "，实际为 " + actual, 422);
-            }
-        }
-    }
-
-    private List<String> validateRow(String type, String stem, String optionsRaw, String standardAnswerRaw, String difficulty) {
-        List<String> errors = new ArrayList<>();
-        if (type.isBlank()) {
-            errors.add("type 不能为空");
-        } else if (!VALID_TYPES.contains(type.trim())) {
-            errors.add("type 无效，应为 singleChoice/multipleChoice/trueFalse/essay");
-        }
-        if (stem.isBlank()) {
-            errors.add("stem 不能为空");
-        }
-        boolean essay = "essay".equals(type.trim());
-        if (optionsRaw.isBlank()) {
-            if (!essay) {
-                errors.add("options 不能为空");
-            }
-        } else {
-            try {
-                Object parsed = JsonHelper.parse(optionsRaw.trim());
-                if (!(parsed instanceof List<?> list) || (!essay && list.isEmpty())) {
-                    errors.add(essay ? "options 必须为 JSON 数组" : "options 必须为非空 JSON 数组");
-                }
-            } catch (Exception e) {
-                errors.add("options 不是合法 JSON 数组");
-            }
-        }
-        if (standardAnswerRaw.isBlank()) {
-            errors.add("standardAnswer 不能为空");
-        } else {
-            try {
-                Object parsed = JsonHelper.parse(standardAnswerRaw.trim());
-                if (!(parsed instanceof List<?> list) || list.isEmpty()) {
-                    errors.add("standardAnswer 必须为非空 JSON 数组");
-                }
-            } catch (Exception e) {
-                errors.add("standardAnswer 不是合法 JSON 数组");
-            }
-        }
-        if (!difficulty.isBlank() && !VALID_DIFFICULTIES.contains(difficulty.trim())) {
-            errors.add("difficulty 无效，应为 easy/medium/hard");
-        }
-        return errors;
-    }
-
-    private boolean isEmptyRow(Row row) {
-        for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
-            if (!cellValue(row, i).isBlank()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private String cellValue(Row row, int col) {
-        Cell cell = row.getCell(col);
-        if (cell == null) {
-            return "";
-        }
-        return dataFormatter.formatCellValue(cell).trim();
+    private void writeTemplateExample(
+            Sheet sheet,
+            int rowIndex,
+            String level1,
+            String level2,
+            String level3,
+            String type,
+            String difficulty,
+            String content,
+            String answer,
+            String optionCount,
+            String examKind
+    ) {
+        Row row = sheet.createRow(rowIndex);
+        row.createCell(0).setCellValue(level1);
+        row.createCell(1).setCellValue(level2);
+        row.createCell(2).setCellValue(level3);
+        row.createCell(3).setCellValue(type);
+        row.createCell(4).setCellValue(difficulty);
+        row.createCell(5).setCellValue(content);
+        row.createCell(6).setCellValue(answer);
+        row.createCell(7).setCellValue(optionCount);
+        row.createCell(8).setCellValue(examKind);
+        row.setHeightInPoints(72);
     }
 
     private void expireIfStale(ImportTask task) {
@@ -402,27 +351,77 @@ public class ImportService {
         Map<String, Object> preview = JsonHelper.toMap(task.getPreviewJson());
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
-        Map<String, Object> pending = new HashMap<>();
-        List<String> categories = validRows.stream()
-                .map(row -> row.get("categoryName"))
-                .filter(v -> v != null && !String.valueOf(v).isBlank())
-                .map(String::valueOf)
-                .distinct()
-                .filter(name -> !questionService.categoryExists(task.getQuestionBankId(), name))
-                .toList();
+        Set<String> categories = new LinkedHashSet<>();
+        List<Map<String, String>> knowledgePoints = new ArrayList<>();
+        Set<String> seenKp = new LinkedHashSet<>();
+        for (Map<String, Object> row : validRows) {
+            String categoryName = blankToNull(row.get("categoryName"));
+            if (categoryName != null && !questionService.categoryExists(task.getQuestionBankId(), categoryName)) {
+                categories.add(categoryName);
+            }
+            String knowledgePointName = blankToNull(row.get("knowledgePointName"));
+            if (categoryName != null && knowledgePointName != null) {
+                String key = categoryName + "\n" + knowledgePointName;
+                if (seenKp.add(key) && !questionService.knowledgePointExists(
+                        task.getQuestionBankId(), categoryName, knowledgePointName)) {
+                    Map<String, String> item = new LinkedHashMap<>();
+                    item.put("category", categoryName);
+                    item.put("name", knowledgePointName);
+                    knowledgePoints.add(item);
+                }
+            }
+        }
+        Map<String, Object> pending = new LinkedHashMap<>();
         if (!categories.isEmpty()) {
-            pending.put("categories", categories);
+            pending.put("categories", new ArrayList<>(categories));
+        }
+        if (!knowledgePoints.isEmpty()) {
+            pending.put("knowledgePoints", knowledgePoints);
         }
         return pending;
     }
 
-    private String resolveCategoryFromConfirm(String bankId, Map<String, Object> confirm, String defaultCategoryId) {
-        if (confirm.containsKey("categoryName")) {
-            return questionService.getOrCreateCategory(bankId, String.valueOf(confirm.get("categoryName")));
+    private static boolean hasPendingHierarchy(Map<String, Object> pending) {
+        if (pending == null || pending.isEmpty()) {
+            return false;
         }
-        return defaultCategoryId;
+        Object categories = pending.get("categories");
+        Object knowledgePoints = pending.get("knowledgePoints");
+        boolean hasCategories = categories instanceof List<?> list && !list.isEmpty();
+        boolean hasKnowledgePoints = knowledgePoints instanceof List<?> list && !list.isEmpty();
+        return hasCategories || hasKnowledgePoints;
     }
 
-    private record ParseResult(int importableCount, int errorCount, Map<String, Object> preview) {
+    private static boolean isHierarchyConfirmed(Map<String, Object> confirm) {
+        if (confirm == null || confirm.isEmpty()) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(confirm.get("confirmPendingHierarchy"))) {
+            return true;
+        }
+        Object confirmed = confirm.get("confirmed");
+        if (Boolean.TRUE.equals(confirmed) || "true".equalsIgnoreCase(String.valueOf(confirmed))) {
+            return true;
+        }
+        return confirm.containsKey("categoryName");
+    }
+
+    private static String blankToNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() || "null".equals(text) ? null : text;
+    }
+
+    private static BigDecimal toScore(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

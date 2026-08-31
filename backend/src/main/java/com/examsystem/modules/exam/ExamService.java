@@ -253,9 +253,9 @@ public class ExamService {
 
         Map<String, Object> config = JsonHelper.toMap(exam.getWizardConfig());
         Map<String, Object> rules = section(config, "rules");
-        List<Map<String, Object>> ruleLines = mapList(rules.get("ruleLines"));
+        List<Map<String, Object>> ruleLines = resolveRuleLines(rules);
         if (ruleLines.isEmpty()) {
-            issues.add(issue("EXM_MISSING_RULES", "未配置组卷规则"));
+            issues.add(issue("EXM_MISSING_RULES", "未配置组卷规则或未选择已组卷题库"));
         } else {
             // 50 rule lines usually target the same bank and type; without this cache the candidate
             // pool would be re-read once per line (requirement 17.2 allows 30s for the whole check).
@@ -271,6 +271,10 @@ public class ExamService {
                 int drawCount = intValue(line.get("drawCount"), 0);
                 if (drawCount <= 0) {
                     issues.add(issue("EXM_INVALID_DRAW_COUNT", "规则行 " + (i + 1) + " 抽题数量无效", i));
+                    continue;
+                }
+                if (drawCount > 100) {
+                    issues.add(issue("EXM_PAPER_TOO_LARGE", "单场试卷不得超过 100 题", i));
                     continue;
                 }
                 List<String> pool = candidateVersionIds(poolCache, bankId, type);
@@ -342,7 +346,7 @@ public class ExamService {
         version.setPublishedAt(Instant.now());
         publishedVersionRepository.save(version);
 
-        List<Map<String, Object>> ruleLines = mapList(rules.get("ruleLines"));
+        List<Map<String, Object>> ruleLines = resolveRuleLines(rules);
         List<ExamRuleLine> ruleLineEntities = new ArrayList<>(ruleLines.size());
         int lineOrder = 1;
         for (Map<String, Object> line : ruleLines) {
@@ -354,6 +358,9 @@ public class ExamService {
             filter.put("bankId", line.get("bankId"));
             if (line.containsKey("type")) {
                 filter.put("type", line.get("type"));
+            }
+            if ("all".equals(stringValue(line.get("selection")))) {
+                filter.put("selection", "all");
             }
             ruleLine.setFilterJson(JsonHelper.toJson(filter));
             ruleLine.setDrawCount(intValue(line.get("drawCount"), 1));
@@ -871,26 +878,53 @@ public class ExamService {
             String bankId = stringValue(filter.get("bankId"));
             String type = stringValue(filter.get("type"));
             List<String> pool = candidateVersionIds(poolCache, bankId, type);
+            boolean useEntireBank = "all".equals(stringValue(filter.get("selection")));
+            int drawCount = useEntireBank ? pool.size() : ruleLine.getDrawCount();
 
-            if (pool.size() < ruleLine.getDrawCount()) {
+            if (drawCount <= 0 || pool.size() < drawCount) {
                 throw BusinessException.of(ErrorCode.VALIDATION_ERROR,
-                        "题池不足，无法组卷（需要 " + ruleLine.getDrawCount() + "，可用 " + pool.size() + "）", 422);
+                        "题池不足，无法组卷（需要 " + Math.max(drawCount, 1) + "，可用 " + pool.size() + "）", 422);
             }
 
-            List<String> shuffled = new ArrayList<>(pool);
-            Collections.shuffle(shuffled);
-            for (int i = 0; i < ruleLine.getDrawCount(); i++) {
+            List<String> drawn = useEntireBank ? pool : shuffledDraw(pool, drawCount);
+            for (String versionId : drawn) {
                 ExamPaperItem item = new ExamPaperItem();
                 item.setId(IdGenerator.newId("epi"));
                 item.setExamAttemptId(attempt.getId());
                 item.setItemOrder(order++);
-                item.setQuestionVersionId(shuffled.get(i));
+                item.setQuestionVersionId(versionId);
                 item.setScore(ruleLine.getScorePerQuestion());
                 paperItems.add(item);
             }
         }
         paperItemRepository.saveAll(paperItems);
         return paperItems;
+    }
+
+    private List<String> shuffledDraw(List<String> pool, int drawCount) {
+        List<String> shuffled = new ArrayList<>(pool);
+        Collections.shuffle(shuffled);
+        return shuffled.subList(0, drawCount);
+    }
+
+    /**
+     * Random-draw rule lines, or a single line that takes every active item in a composed bank.
+     */
+    private List<Map<String, Object>> resolveRuleLines(Map<String, Object> rules) {
+        if ("fixedBank".equals(stringValue(rules.get("paperMode")))) {
+            String bankId = stringValue(rules.get("fixedBankId"));
+            if (bankId == null || bankId.isBlank()) {
+                return List.of();
+            }
+            List<String> pool = questionService.findActiveVersionIdsByBank(bankId, null);
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("bankId", bankId);
+            line.put("drawCount", pool.size());
+            line.put("scorePerQuestion", rules.getOrDefault("scorePerQuestion", 1));
+            line.put("selection", "all");
+            return List.of(line);
+        }
+        return mapList(rules.get("ruleLines"));
     }
 
     private List<String> candidateVersionIds(Map<String, List<String>> cache, String bankId, String type) {

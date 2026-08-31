@@ -1377,7 +1377,7 @@ paths:
     put:
       tags: [Exam]
       operationId: updateExamWizardRules
-      summary: 向导-规则与组卷
+      summary: 向导-规则与组卷（抽题规则或已组卷题库整库入卷）
       x-fr-ids: [FR-EXM-01, FR-EXM-02]
       x-page-ids: [AD-11]
       parameters:

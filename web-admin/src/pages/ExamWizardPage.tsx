@@ -6,6 +6,7 @@ interface QuestionBankSummary {
   id: string
   name: string
   status: string
+  activeQuestionCount?: number
 }
 
 interface DepartmentDto {
@@ -49,7 +50,7 @@ interface PreflightResult {
   issues: PreflightIssue[]
 }
 
-const STEPS = ['基本信息', '抽题规则', '应考人员', '可见性', '复核发布'] as const
+const STEPS = ['基本信息', '组卷', '应考人员', '可见性', '复核发布'] as const
 
 const TYPE_OPTIONS = [
   { value: 'singleChoice', label: '单选' },
@@ -92,6 +93,9 @@ export default function ExamWizardPage() {
   const [title, setTitle] = useState('')
   const [openStartAt, setOpenStartAt] = useState('')
   const [ruleLines, setRuleLines] = useState<RuleLine[]>([emptyRule('')])
+  const [paperMode, setPaperMode] = useState<'rules' | 'fixedBank'>('rules')
+  const [fixedBankId, setFixedBankId] = useState('')
+  const [fixedScorePerQuestion, setFixedScorePerQuestion] = useState(1)
   const [durationMinutes, setDurationMinutes] = useState(60)
   const [maxAttempts, setMaxAttempts] = useState(1)
   const [passingScore, setPassingScore] = useState(3)
@@ -103,10 +107,15 @@ export default function ExamWizardPage() {
   const [showAnswers, setShowAnswers] = useState(false)
 
   const flatDepartments = useMemo(() => flattenDepartments(departments), [departments])
-  const totalMaxScore = ruleLines.reduce(
-    (sum, line) => sum + Number(line.drawCount || 0) * Number(line.scorePerQuestion || 0),
-    0,
-  )
+  const selectedFixedBank = banks.find((bank) => bank.id === fixedBankId)
+  const fixedQuestionCount = selectedFixedBank?.activeQuestionCount ?? 0
+  const totalMaxScore =
+    paperMode === 'fixedBank'
+      ? fixedQuestionCount * Number(fixedScorePerQuestion || 0)
+      : ruleLines.reduce(
+          (sum, line) => sum + Number(line.drawCount || 0) * Number(line.scorePerQuestion || 0),
+          0,
+        )
 
   const loadLookups = useCallback(async () => {
     try {
@@ -123,6 +132,7 @@ export default function ExamWizardPage() {
         setRuleLines((current) =>
           current.map((line) => ({ ...line, bankId: line.bankId || active[0].id })),
         )
+        setFixedBankId((current) => current || active[0].id)
       }
     } catch {
       // shown during wizard
@@ -191,22 +201,49 @@ export default function ExamWizardPage() {
         })
         setStep(1)
       } else if (step === 1) {
-        if (ruleLines.length === 0 || ruleLines.some((line) => !line.bankId || line.drawCount < 1)) {
-          setError('请至少配置一条有效抽题规则')
-          return
+        if (paperMode === 'fixedBank') {
+          if (!fixedBankId) {
+            setError('请选择已组卷题库')
+            return
+          }
+          if (fixedQuestionCount < 1) {
+            setError('所选题库没有启用中的题目，请先在题库中组好卷')
+            return
+          }
+          if (fixedQuestionCount > 100) {
+            setError('整库入卷不得超过 100 题')
+            return
+          }
+          await apiFetch(`/admin/exams/${currentExamId}/wizard/rules`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              paperMode: 'fixedBank',
+              fixedBankId,
+              scorePerQuestion: fixedScorePerQuestion,
+              durationMinutes,
+              maxAttempts,
+              passingScore,
+            }),
+          })
+        } else {
+          if (ruleLines.length === 0 || ruleLines.some((line) => !line.bankId || line.drawCount < 1)) {
+            setError('请至少配置一条有效抽题规则')
+            return
+          }
+          await apiFetch(`/admin/exams/${currentExamId}/wizard/rules`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              paperMode: 'rules',
+              durationMinutes,
+              maxAttempts,
+              passingScore,
+              ruleLines: ruleLines.map((line, index) => ({
+                ...line,
+                lineOrder: index + 1,
+              })),
+            }),
+          })
         }
-        await apiFetch(`/admin/exams/${currentExamId}/wizard/rules`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            durationMinutes,
-            maxAttempts,
-            passingScore,
-            ruleLines: ruleLines.map((line, index) => ({
-              ...line,
-              lineOrder: index + 1,
-            })),
-          }),
-        })
         setStep(2)
       } else if (step === 2) {
         await apiFetch(`/admin/exams/${currentExamId}/wizard/assignees`, {
@@ -308,86 +345,150 @@ export default function ExamWizardPage() {
 
           {step === 1 && (
             <>
-              {ruleLines.map((line, index) => (
-                <div className="rule-line" key={`rule-${index}`}>
-                  <div className="form-row">
-                    <label>
-                      题库
-                      <select
-                        value={line.bankId}
-                        onChange={(e) => updateRule(index, { bankId: e.target.value })}
-                        required
-                      >
-                        {banks.length === 0 ? (
-                          <option value="">暂无可用题库</option>
-                        ) : (
-                          banks.map((bank) => (
-                            <option key={bank.id} value={bank.id}>
-                              {bank.name}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </label>
-                    <label>
-                      题型
-                      <select
-                        value={line.type}
-                        onChange={(e) => updateRule(index, { type: e.target.value })}
-                      >
-                        {TYPE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      抽题数
-                      <input
-                        type="number"
-                        min={1}
-                        max={200}
-                        value={line.drawCount}
-                        onChange={(e) => updateRule(index, { drawCount: Number(e.target.value) })}
-                        required
-                      />
-                    </label>
-                    <label>
-                      每题分值
-                      <input
-                        type="number"
-                        min={0.5}
-                        step={0.5}
-                        value={line.scorePerQuestion}
-                        onChange={(e) =>
-                          updateRule(index, { scorePerQuestion: Number(e.target.value) })
-                        }
-                        required
-                      />
-                    </label>
-                  </div>
-                  {ruleLines.length > 1 && (
-                    <button
-                      type="button"
-                      className="btn-text"
-                      onClick={() => setRuleLines((prev) => prev.filter((_, i) => i !== index))}
+              <fieldset className="paper-mode">
+                <legend>组卷方式</legend>
+                <label className="checkbox-label">
+                  <input
+                    type="radio"
+                    name="paperMode"
+                    checked={paperMode === 'rules'}
+                    onChange={() => setPaperMode('rules')}
+                  />
+                  按规则抽题
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="radio"
+                    name="paperMode"
+                    checked={paperMode === 'fixedBank'}
+                    onChange={() => setPaperMode('fixedBank')}
+                  />
+                  选用已组卷题库
+                </label>
+                <p className="field-hint">
+                  已组卷题库指在题库管理中复制、整理后的固定题目集合。选择后整库入卷，不再随机抽取。
+                </p>
+              </fieldset>
+
+              {paperMode === 'fixedBank' ? (
+                <>
+                  <label>
+                    已组卷题库
+                    <select
+                      value={fixedBankId}
+                      onChange={(e) => setFixedBankId(e.target.value)}
+                      required
                     >
-                      删除此规则
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() =>
-                  setRuleLines((prev) => [...prev, emptyRule(banks[0]?.id || '')])
-                }
-              >
-                添加规则行
-              </button>
-              <p className="field-hint">卷面满分 {totalMaxScore} 分（抽题数 × 分值之和）</p>
+                      {banks.length === 0 ? (
+                        <option value="">暂无可用题库</option>
+                      ) : (
+                        banks.map((bank) => (
+                          <option key={bank.id} value={bank.id}>
+                            {bank.name}（{bank.activeQuestionCount ?? 0} 题）
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                  <label>
+                    每题分值
+                    <input
+                      type="number"
+                      min={0.5}
+                      step={0.5}
+                      value={fixedScorePerQuestion}
+                      onChange={(e) => setFixedScorePerQuestion(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                  <p className="field-hint">
+                    将纳入 {fixedQuestionCount} 题，卷面满分 {totalMaxScore} 分。请先在题库中完成组卷后再选择。
+                  </p>
+                </>
+              ) : (
+                <>
+                  {ruleLines.map((line, index) => (
+                    <div className="rule-line" key={`rule-${index}`}>
+                      <div className="form-row">
+                        <label>
+                          题库
+                          <select
+                            value={line.bankId}
+                            onChange={(e) => updateRule(index, { bankId: e.target.value })}
+                            required
+                          >
+                            {banks.length === 0 ? (
+                              <option value="">暂无可用题库</option>
+                            ) : (
+                              banks.map((bank) => (
+                                <option key={bank.id} value={bank.id}>
+                                  {bank.name}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                        </label>
+                        <label>
+                          题型
+                          <select
+                            value={line.type}
+                            onChange={(e) => updateRule(index, { type: e.target.value })}
+                          >
+                            {TYPE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          抽题数
+                          <input
+                            type="number"
+                            min={1}
+                            max={200}
+                            value={line.drawCount}
+                            onChange={(e) => updateRule(index, { drawCount: Number(e.target.value) })}
+                            required
+                          />
+                        </label>
+                        <label>
+                          每题分值
+                          <input
+                            type="number"
+                            min={0.5}
+                            step={0.5}
+                            value={line.scorePerQuestion}
+                            onChange={(e) =>
+                              updateRule(index, { scorePerQuestion: Number(e.target.value) })
+                            }
+                            required
+                          />
+                        </label>
+                      </div>
+                      {ruleLines.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn-text"
+                          onClick={() => setRuleLines((prev) => prev.filter((_, i) => i !== index))}
+                        >
+                          删除此规则
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() =>
+                      setRuleLines((prev) => [...prev, emptyRule(banks[0]?.id || '')])
+                    }
+                  >
+                    添加规则行
+                  </button>
+                  <p className="field-hint">卷面满分 {totalMaxScore} 分（抽题数 × 分值之和）</p>
+                </>
+              )}
               <div className="form-row">
                 <label>
                   考试时长（分钟）
@@ -515,6 +616,12 @@ export default function ExamWizardPage() {
               <dl className="detail-list">
                 <dt>标题</dt>
                 <dd>{title || '—'}</dd>
+                <dt>组卷</dt>
+                <dd>
+                  {paperMode === 'fixedBank'
+                    ? `已组卷题库「${selectedFixedBank?.name ?? fixedBankId}」整库 ${fixedQuestionCount} 题 · 每题 ${fixedScorePerQuestion} 分 · 满分 ${totalMaxScore}`
+                    : `按规则抽题 ${ruleLines.length} 行 · 满分 ${totalMaxScore}`}
+                </dd>
                 <dt>时长 / 次数 / 及格分</dt>
                 <dd>
                   {durationMinutes} 分钟 · {maxAttempts} 次 · {passingScore} 分
@@ -522,6 +629,7 @@ export default function ExamWizardPage() {
                 <dt>应考人员</dt>
                 <dd>{assigneeLabel()}</dd>
               </dl>
+              {paperMode === 'rules' && (
               <table className="data-table">
                 <thead>
                   <tr>
@@ -544,6 +652,7 @@ export default function ExamWizardPage() {
                   ))}
                 </tbody>
               </table>
+              )}
               {preflightIssues.length > 0 && (
                 <ul className="form-error">
                   {preflightIssues.map((issue, index) => (

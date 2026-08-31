@@ -253,8 +253,108 @@ class ImportIntegrationTest {
         assertThat(ExcelCellHelper.sanitize("正常姓名")).isEqualTo("正常姓名");
     }
 
+    @Test
+    void legacyChineseBankPreviewThenConfirmCreatesCategory() throws Exception {
+        String bankName = "历史题库导入-" + UUID.randomUUID();
+        MvcResult createdBank = mockMvc.perform(post("/question-banks")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + bankName + "\",\"practiceEnabled\":true,\"mockEnabled\":true}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String bankId = objectMapper.readTree(createdBank.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+
+        MockMultipartFile file = legacyQuestionWorkbook();
+        MvcResult created = mockMvc.perform(multipart("/import/tasks")
+                        .file(file)
+                        .param("questionBankId", bankId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.importableCount").value(3))
+                .andExpect(jsonPath("$.data.errorCount").value(0))
+                .andReturn();
+        String taskId = objectMapper.readTree(created.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+
+        MvcResult preview = mockMvc.perform(get("/import/tasks/" + taskId + "/preview")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pendingHierarchy.categories").isArray())
+                .andReturn();
+        String confirmToken = objectMapper.readTree(preview.getResponse().getContentAsString())
+                .path("data").path("confirmToken").asText();
+
+        mockMvc.perform(post("/import/tasks/" + taskId + "/confirm")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"confirmToken\":\"" + confirmToken + "\"}"))
+                .andExpect(status().isUnprocessableEntity());
+
+        mockMvc.perform(post("/import/tasks/" + taskId + "/confirm")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmToken":"%s","hierarchyConfirm":{"confirmPendingHierarchy":true}}
+                                """.formatted(confirmToken)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/question-banks/" + bankId + "/categories")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].name").value(org.hamcrest.Matchers.hasItems("烟花爆竹", "企业主要负责人")));
+        mockMvc.perform(get("/question-banks/" + bankId + "/questions?page=1&pageSize=10")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(3));
+    }
+
     private static String[] validRow(String stem) {
         return new String[] {"singleChoice", stem, VALID_OPTIONS, VALID_ANSWER, "easy"};
+    }
+
+    private static MockMultipartFile legacyQuestionWorkbook() throws Exception {
+        try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
+             var out = new java.io.ByteArrayOutputStream()) {
+            var sheet = workbook.createSheet("烟花爆竹");
+            var header = sheet.createRow(0);
+            String[] names = {"一级科目", "二级科目", "三级科目", "题型", "难易度", "题目内容", "正确答案", "答案选项数量", "试题类型"};
+            for (int i = 0; i < names.length; i++) {
+                header.createCell(i).setCellValue(names[i]);
+            }
+            var hint = sheet.createRow(1);
+            hint.createCell(0).setCellValue("必填，一级目录。");
+            hint.createCell(3).setCellValue("必填，只能填写“判断、单选、多选”其中之一");
+            var r1 = sheet.createRow(2);
+            r1.createCell(2).setCellValue("烟花爆竹");
+            r1.createCell(3).setCellValue("单选");
+            r1.createCell(4).setCellValue("简单");
+            r1.createCell(5).setCellValue("批发企业应当（）。\nA及时销毁\nB立即停售\nC自行封存\nD分类存放");
+            r1.createCell(6).setCellValue("A");
+            r1.createCell(7).setCellValue("4");
+            var r2 = sheet.createRow(3);
+            r2.createCell(0).setCellValue("企业主要负责人");
+            r2.createCell(1).setCellValue("一般行业");
+            r2.createCell(3).setCellValue("多选");
+            r2.createCell(4).setCellValue("中");
+            r2.createCell(5).setCellValue("必须执行（）标准。\nA．国家\nB．地方\nC．行业\nD．合同约定");
+            r2.createCell(6).setCellValue("AC");
+            r2.createCell(7).setCellValue("4");
+            var r3 = sheet.createRow(4);
+            r3.createCell(2).setCellValue("烟花爆竹");
+            r3.createCell(3).setCellValue("判断");
+            r3.createCell(4).setCellValue("一般");
+            r3.createCell(5).setCellValue("零售经营者不得采购礼花弹。");
+            r3.createCell(6).setCellValue("对");
+            r3.createCell(7).setCellValue("2");
+            workbook.write(out);
+            return new MockMultipartFile(
+                    "file",
+                    "题库.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    out.toByteArray()
+            );
+        }
     }
 
     private static MockMultipartFile wrongHeaderWorkbook() throws Exception {

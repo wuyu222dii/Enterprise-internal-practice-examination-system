@@ -55,6 +55,7 @@ public interface QuestionVersionRepository extends JpaRepository<QuestionVersion
               AND v.versionNo = (
                   SELECT MAX(v2.versionNo) FROM QuestionVersion v2 WHERE v2.questionId = v.questionId
               )
+            ORDER BY v.questionId
             """)
     List<String> findLatestActiveIdsByBankAndType(
             @Param("bankId") String bankId,

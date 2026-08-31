@@ -347,6 +347,12 @@ public class QuestionService {
         return categoryRepository.findByQuestionBankIdAndName(bankId, name).isPresent();
     }
 
+    public boolean knowledgePointExists(String bankId, String categoryName, String knowledgePointName) {
+        return categoryRepository.findByQuestionBankIdAndName(bankId, categoryName)
+                .flatMap(category -> knowledgePointRepository.findByCategoryIdAndName(category.getId(), knowledgePointName))
+                .isPresent();
+    }
+
     @Transactional
     public String getOrCreateCategory(String bankId, String name) {
         SecurityUtils.requireAdmin();
@@ -360,6 +366,21 @@ public class QuestionService {
                     category.setName(name);
                     categoryRepository.save(category);
                     return category.getId();
+                });
+    }
+
+    @Transactional
+    public String getOrCreateKnowledgePoint(String categoryId, String name) {
+        SecurityUtils.requireAdmin();
+        return knowledgePointRepository.findByCategoryIdAndName(categoryId, name)
+                .map(KnowledgePoint::getId)
+                .orElseGet(() -> {
+                    KnowledgePoint knowledgePoint = new KnowledgePoint();
+                    knowledgePoint.setId(IdGenerator.newId("kp"));
+                    knowledgePoint.setCategoryId(categoryId);
+                    knowledgePoint.setName(name);
+                    knowledgePointRepository.save(knowledgePoint);
+                    return knowledgePoint.getId();
                 });
     }
 
@@ -429,6 +450,7 @@ public class QuestionService {
         dto.put("status", bank.getStatus());
         dto.put("practiceEnabled", bank.isPracticeEnabled());
         dto.put("mockEnabled", bank.isMockEnabled());
+        dto.put("activeQuestionCount", questionRepository.countByQuestionBankIdAndStatus(bank.getId(), "active"));
         dto.put("createdAt", bank.getCreatedAt());
         return dto;
     }

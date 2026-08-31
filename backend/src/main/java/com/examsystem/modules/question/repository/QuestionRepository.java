@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface QuestionRepository extends JpaRepository<Question, String> {
     Page<Question> findByQuestionBankId(String questionBankId, Pageable pageable);
+
+    long countByQuestionBankIdAndStatus(String questionBankId, String status);
 }
