@@ -27,6 +27,16 @@ class SecurityIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Test
+    void unauthenticatedRequestReturnsUtf8ExpiredMessage() throws Exception {
+        mockMvc.perform(get("/exams/tasks"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("AUTH_SESSION_EXPIRED"))
+                .andExpect(jsonPath("$.error.message").value("未登录或会话已过期"))
+                .andExpect(jsonPath("$.meta.requestId").isNotEmpty())
+                .andExpect(jsonPath("$.meta.timezone").value("Asia/Shanghai"));
+    }
+
+    @Test
     void examUserCannotAccessAdminDepartments() throws Exception {
         String examToken = TestAuthHelper.loginExam001(mockMvc, objectMapper);
         mockMvc.perform(get("/departments")

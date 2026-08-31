@@ -26,6 +26,7 @@ export default function AccountPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [hasOutageDisposition, setHasOutageDisposition] = useState(false)
   const [reason, setReason] = useState('')
+  const [phone, setPhone] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [tempPassword, setTempPassword] = useState('')
 
@@ -68,6 +69,30 @@ export default function AccountPage() {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : '更新失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleSavePhone(e: FormEvent) {
+    e.preventDefault()
+    if (!id || !phone.trim()) {
+      setError('请填写手机号')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    setSuccess('')
+    try {
+      await apiFetch(`/employees/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ phone: phone.trim() }),
+      })
+      setSuccess('档案手机号已更新，可用于短信绑定与找回')
+      setPhone('')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSubmitting(false)
     }
@@ -121,10 +146,28 @@ export default function AccountPage() {
               <dt>部门</dt>
               <dd>{employee.departmentPath}</dd>
               <dt>手机</dt>
-              <dd>{employee.phoneMasked || '—'}</dd>
+              <dd>{employee.phoneMasked || '未登记'}</dd>
               <dt>状态</dt>
               <dd>{employee.status}</dd>
             </dl>
+            <form className="inline-form" onSubmit={handleSavePhone}>
+              <label>
+                档案手机号
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="用于绑定小程序和找回密码"
+                  required
+                />
+              </label>
+              <button type="submit" className="btn-primary" disabled={submitting}>
+                {submitting ? '保存中…' : '保存手机号'}
+              </button>
+            </form>
+            <p className="page-desc">
+              演示种子在未登记时为 ADMIN001=13800000001、EXAM001=13800000002。绑定、解绑和短信找回必须与档案号码一致。
+            </p>
             <button
               type="button"
               className="btn-secondary"

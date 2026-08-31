@@ -126,6 +126,7 @@ class AuthIntegrationTest {
         employeeRepository.save(admin);
 
         mockMvc.perform(post("/auth/sms/send")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"phone":"13900001234","purpose":"bindMiniProgram"}
@@ -164,6 +165,7 @@ class AuthIntegrationTest {
                 .andExpect(jsonPath("$.data.session.miniProgramBound").value(true));
 
         mockMvc.perform(post("/auth/sms/send")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"phone":"13900001234","purpose":"unbindMiniProgram"}
@@ -189,5 +191,21 @@ class AuthIntegrationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.session.miniProgramBound").value(false));
+    }
+
+    @Test
+    void bindSmsWithoutArchivePhoneReturns422() throws Exception {
+        String token = TestAuthHelper.loginExam001(mockMvc, objectMapper);
+        Employee examUser = employeeRepository.findByEmployeeNo("EXAM001").orElseThrow();
+        examUser.setPhone(null);
+        employeeRepository.save(examUser);
+        mockMvc.perform(post("/auth/sms/send")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone":"17778776531","purpose":"bindMiniProgram"}
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
     }
 }

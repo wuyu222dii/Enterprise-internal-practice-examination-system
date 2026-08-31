@@ -12,7 +12,14 @@
     </view>
     <view wx:for="{{tasks}}" wx:key="id" class="card task-card" bindtap="onTaskTap" data-id="{{item.id}}">
       <view class="card-title">{{item.title || item.examCode || item.id}}</view>
-      <view class="card-meta">{{item.statusLine}}</view>
+      <view class="domain-row">
+        <view class="domain-cell"><text class="dt">生命周期</text><text class="dd">{{item.domain.lifecycle}}</text></view>
+        <view class="domain-cell"><text class="dt">运行</text><text class="dd">{{item.domain.run}}</text></view>
+        <view class="domain-cell"><text class="dt">参与</text><text class="dd">{{item.domain.participation}}</text></view>
+        <view class="domain-cell"><text class="dt">尝试</text><text class="dd">{{item.domain.attempt}}</text></view>
+        <view class="domain-cell"><text class="dt">结果</text><text class="dd">{{item.domain.result}}</text></view>
+      </view>
+      <view class="card-meta" wx:if="{{item.examCode}}">{{item.examCode}}</view>
     </view>
   </view>
 </view>

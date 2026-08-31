@@ -1,5 +1,5 @@
 <view class="page">
-  <block wx:if="{{view === 'menu' && !forceChange}}">
+  <block wx:if="{{view === 'menu' && !forceChange && !forceBind}}">
     <view class="profile-hero">
       <view class="avatar">{{avatarInitial}}</view>
       <view class="profile-meta">
@@ -59,8 +59,9 @@
 
   <view class="body" wx:else>
     <view class="card">
-      <view class="card-title">{{forceChange ? '修改密码' : panelTitle}}</view>
+      <view class="card-title">{{forceChange ? '修改密码' : (forceBind ? '绑定微信后才能使用' : panelTitle)}}</view>
       <view class="card-meta" wx:if="{{forceChange}}">首次登录须修改密码后才能继续使用</view>
+      <view class="card-meta" wx:if="{{forceBind}}">未绑定仅可使用本页完成激活，绑定后才能进入练习与任务</view>
 
       <block wx:if="{{view === 'password' || forceChange}}">
         <view class="field">
@@ -79,25 +80,30 @@
       </block>
 
       <block wx:if="{{view === 'bind'}}">
-        <view class="help-text">本地开发验证码固定为 123456</view>
-        <view class="field">
-          <text class="field-label">绑定手机号</text>
-          <input class="field-input" type="number" value="{{bindPhone}}" bindinput="onBindPhoneInput" />
+        <view class="help-text" wx:if="{{!phoneMasked}}">
+          当前账号档案没有手机号。请管理员在管理后台「员工 → 账号设置」填写后再绑定。
         </view>
-        <button wx:if="{{bindStep === 'idle'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onSendBindSms">
-          发送验证码
-        </button>
-        <block wx:if="{{bindStep === 'verify' || bindStep === 'ready'}}">
+        <block wx:else>
+          <view class="help-text">验证码将发送至档案手机号 {{phoneMasked}}。本地 mock 验证码固定为 123456。</view>
           <view class="field">
-            <text class="field-label">验证码</text>
-            <input class="field-input" value="{{bindCode}}" bindinput="onBindCodeInput" />
+            <text class="field-label">绑定手机号</text>
+            <input class="field-input" type="number" value="{{bindPhone}}" bindinput="onBindPhoneInput" />
           </view>
-          <button wx:if="{{bindStep === 'verify'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onVerifyBindSms">
-            验证
+          <button wx:if="{{bindStep === 'idle'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onSendBindSms">
+            发送验证码
           </button>
-          <button wx:if="{{bindStep === 'ready'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onBindMiniProgram">
-            完成绑定
-          </button>
+          <block wx:if="{{bindStep === 'verify' || bindStep === 'ready'}}">
+            <view class="field">
+              <text class="field-label">验证码</text>
+              <input class="field-input" value="{{bindCode}}" bindinput="onBindCodeInput" />
+            </view>
+            <button wx:if="{{bindStep === 'verify'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onVerifyBindSms">
+              验证
+            </button>
+            <button wx:if="{{bindStep === 'ready'}}" class="btn-primary" loading="{{bindLoading}}" bindtap="onBindMiniProgram">
+              完成绑定
+            </button>
+          </block>
         </block>
       </block>
 
@@ -130,7 +136,7 @@
 
       <view class="error" wx:if="{{error}}">{{error}}</view>
       <view class="success" wx:if="{{success}}">{{success}}</view>
-      <button wx:if="{{!forceChange}}" class="btn-ghost" bindtap="onBackMenu">返回</button>
+      <button wx:if="{{!forceChange && !forceBind}}" class="btn-ghost" bindtap="onBackMenu">返回</button>
     </view>
   </view>
 </view>

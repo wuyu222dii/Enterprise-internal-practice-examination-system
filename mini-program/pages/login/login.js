@@ -68,6 +68,8 @@ Page({
           app.setAuth(token, session)
           if (session.mustChangePassword) {
             wx.reLaunch({ url: '/pages/account/account?forceChange=1' })
+          } else if (!session.miniProgramBound) {
+            wx.reLaunch({ url: '/pages/account/account?forceBind=1' })
           } else {
             wx.reLaunch({ url: '/pages/home/home' })
           }

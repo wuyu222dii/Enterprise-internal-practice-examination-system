@@ -321,3 +321,68 @@ page {
   font-size: 26rpx;
   color: #856404;
 }
+
+.exam-todo {
+  margin-top: 24rpx;
+}
+
+.todo-item {
+  padding: 20rpx 0;
+  border-top: 2rpx solid #f3f4f6;
+}
+
+.todo-title {
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+.todo-meta {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  color: #6b7280;
+}
+
+.domain-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx 16rpx;
+  margin-top: 12rpx;
+}
+
+.domain-cell {
+  min-width: 120rpx;
+}
+
+.domain-cell .dt {
+  display: block;
+  font-size: 20rpx;
+  color: #9ca3af;
+}
+
+.domain-cell .dd {
+  display: block;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.copy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.copy-btn {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #1b4b8a;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.copy-btn::after {
+  border: none;
+}

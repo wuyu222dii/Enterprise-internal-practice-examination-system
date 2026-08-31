@@ -7,15 +7,36 @@ const LIFECYCLE_LABEL = {
   cancelled: '已取消',
 }
 
+const RESULT_LABEL = {
+  available: '可披露',
+  closing: '收尾观察',
+  locked: '结果锁定',
+  cancelled: '已取消',
+}
+
 function lifecycleLabel(lifecycle) {
   return LIFECYCLE_LABEL[lifecycle] || lifecycle || '—'
 }
 
+function examDomain(exam) {
+  const run = exam?.runStatus === 'paused' ? '暂停' : '正常'
+  const participation = exam?.participationLabel || exam?.participationStatus || '—'
+  const attempt = exam?.remainingAttempts != null ? `剩余 ${exam.remainingAttempts} 次` : '—'
+  const result = exam?.resultLocked
+    ? '结果锁定'
+    : (RESULT_LABEL[exam?.resultState] || exam?.resultState || '—')
+  return {
+    lifecycle: lifecycleLabel(exam?.lifecycle),
+    run,
+    participation,
+    attempt,
+    result,
+  }
+}
+
 function examStatusLine(exam) {
-  const parts = [lifecycleLabel(exam?.lifecycle)]
-  if (exam?.runStatus === 'paused') parts.push('已暂停')
-  if (exam?.resultLocked) parts.push('结果锁定')
-  return parts.join(' · ')
+  const domain = examDomain(exam)
+  return [domain.lifecycle, domain.run, domain.participation, domain.attempt, domain.result].join(' · ')
 }
 
 function examStatusHint(exam) {
@@ -36,6 +57,7 @@ function examStatusHint(exam) {
 
 module.exports = {
   lifecycleLabel,
+  examDomain,
   examStatusLine,
   examStatusHint,
 }

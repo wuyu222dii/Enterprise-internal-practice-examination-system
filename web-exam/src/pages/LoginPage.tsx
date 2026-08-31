@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, setAuth } from '../api/client'
+import { examCompatibility } from '../browserSupport'
 
 interface SessionDto {
   employeeId: string
@@ -37,6 +38,7 @@ export default function LoginPage() {
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const [sendingSms, setSendingSms] = useState(false)
+  const compat = examCompatibility()
 
   function resetForgotForm() {
     setResetStep('phone')
@@ -285,7 +287,8 @@ export default function LoginPage() {
       <div className="login-card">
         <h1>正式考试端</h1>
         <p className="login-subtitle">EX-01 员工登录</p>
-        <p className="login-hint">本地开发：ADMIN001 / Admin@123</p>
+        <p className="login-hint">本地开发：ADMIN001 / Admin@123 · 档案手机 13800000001</p>
+        {!compat.ok && <p className="compat-banner">{compat.message}</p>}
         <form onSubmit={handleSubmit}>
           <label>
             员工号

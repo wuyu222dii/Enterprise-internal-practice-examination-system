@@ -23,8 +23,7 @@ Page({
   },
 
   onShow() {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess()) {
       return
     }
     this.loadWrongBook()

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, apiFetch, newIdempotencyKey } from '../api/client'
-import { lifecycleLabel, startFailureCopy } from '../examLabels'
+import { examCompatibility } from '../browserSupport'
+import { startFailureCopy } from '../examLabels'
+import { FiveDomainStatus } from '../FiveDomainStatus'
+import { formatEnterpriseTime } from '../formatTime'
 
 type ExamDetail = Record<string, unknown>
 
@@ -17,6 +20,7 @@ export default function ExamBriefPage() {
   const [activeAttempt, setActiveAttempt] = useState<ActiveAttempt | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
+  const [confirmStart, setConfirmStart] = useState(false)
   const [error, setError] = useState('')
   const [gate, setGate] = useState<{ title: string; body: string } | null>(null)
 
@@ -46,12 +50,16 @@ export default function ExamBriefPage() {
 
       const lifecycle = String(examRes.data.lifecycle ?? '')
       const runStatus = String(examRes.data.runStatus ?? '')
+      const hasActive = Boolean(activeRes.data?.attemptId)
+      const compat = examCompatibility()
       if (runStatus === 'paused') {
         setGate(startFailureCopy('ATT_EXAM_PAUSED'))
       } else if (lifecycle === 'notStarted') {
         setGate(startFailureCopy('ATT_NOT_STARTED'))
       } else if (lifecycle === 'closing' || lifecycle === 'ended' || lifecycle === 'cancelled') {
         setGate(startFailureCopy('ATT_WINDOW_CLOSED'))
+      } else if (!compat.ok && !hasActive) {
+        setGate({ title: '当前环境不支持新开卷', body: compat.message })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
@@ -66,6 +74,12 @@ export default function ExamBriefPage() {
 
   async function handleStart() {
     if (!examId) return
+    const compat = examCompatibility()
+    if (!compat.ok) {
+      setGate({ title: '当前环境不支持新开卷', body: compat.message })
+      setConfirmStart(false)
+      return
+    }
     setStarting(true)
     setError('')
     try {
@@ -82,6 +96,7 @@ export default function ExamBriefPage() {
       }
       navigate(`/attempts/${attemptId}`, { replace: true })
     } catch (err) {
+      setConfirmStart(false)
       if (err instanceof ApiError) {
         const copy = startFailureCopy(err.code)
         if (copy) {
@@ -107,6 +122,9 @@ export default function ExamBriefPage() {
     : examId
   const lifecycle = exam ? String(exam.lifecycle ?? '') : ''
   const canStart = !gate && !activeAttempt && lifecycle === 'openForAttempt'
+  const maxAttempts = exam?.maxAttempts != null ? Number(exam.maxAttempts) : null
+  const remainingAttempts = exam?.remainingAttempts != null ? Number(exam.remainingAttempts) : null
+  const durationMinutes = exam?.durationMinutes != null ? Number(exam.durationMinutes) : null
 
   return (
     <div className="page">
@@ -143,6 +161,9 @@ export default function ExamBriefPage() {
               : ''}
             ，是否继续作答？
           </p>
+          {!examCompatibility().ok && (
+            <p className="compat-banner risk">当前浏览器或视口不符合开卷要求，继续作答存在显示风险，但不阻断在途考试。</p>
+          )}
           <button type="button" className="btn-primary" onClick={handleResume}>
             继续考试
           </button>
@@ -151,21 +172,47 @@ export default function ExamBriefPage() {
 
       {exam && (
         <section className="card">
+          <FiveDomainStatus
+            lifecycle={lifecycle}
+            runStatus={exam.runStatus != null ? String(exam.runStatus) : null}
+            remainingAttempts={remainingAttempts}
+            usedAttempts={exam.usedAttempts != null ? Number(exam.usedAttempts) : null}
+            resultState={exam.resultState != null ? String(exam.resultState) : null}
+            resultLocked={Boolean(exam.resultLocked)}
+            participationLabel={exam.participationLabel != null ? String(exam.participationLabel) : null}
+          />
           <dl className="detail-list">
-            <div className="detail-row">
-              <dt>状态</dt>
-              <dd>{lifecycleLabel(lifecycle)}</dd>
-            </div>
+            {exam.examCode != null && (
+              <div className="detail-row">
+                <dt>考试码</dt>
+                <dd>{String(exam.examCode)}</dd>
+              </div>
+            )}
+            {durationMinutes != null && (
+              <div className="detail-row">
+                <dt>考试时长</dt>
+                <dd>{durationMinutes} 分钟</dd>
+              </div>
+            )}
+            {maxAttempts != null && (
+              <div className="detail-row">
+                <dt>可开卷次数</dt>
+                <dd>
+                  {maxAttempts} 次
+                  {remainingAttempts != null ? `（剩余 ${remainingAttempts} 次）` : ''}
+                </dd>
+              </div>
+            )}
             {exam.openStartAt != null && (
               <div className="detail-row">
                 <dt>开放时间</dt>
-                <dd>{String(exam.openStartAt)}</dd>
+                <dd>{formatEnterpriseTime(String(exam.openStartAt))}</dd>
               </div>
             )}
             {exam.stopAttemptAt != null && (
               <div className="detail-row">
                 <dt>停止开卷</dt>
-                <dd>{String(exam.stopAttemptAt)}</dd>
+                <dd>{formatEnterpriseTime(String(exam.stopAttemptAt))}</dd>
               </div>
             )}
             {exam.description != null && String(exam.description) !== '' && (
@@ -179,13 +226,44 @@ export default function ExamBriefPage() {
             <button
               type="button"
               className="btn-primary"
-              onClick={handleStart}
+              onClick={() => setConfirmStart(true)}
               disabled={starting}
             >
-              {starting ? '开卷中…' : '开始考试'}
+              开始考试
             </button>
           )}
         </section>
+      )}
+
+      {confirmStart && (
+        <div className="workbench-overlay" role="dialog" aria-modal="true">
+          <div className="overlay-card">
+            <h2>确认开卷</h2>
+            <p>开卷将消耗 1 次作答机会，并立即开始计时。提交前不可退出本次计时。</p>
+            {remainingAttempts != null && (
+              <p>剩余次数（含本次）：{remainingAttempts}</p>
+            )}
+            {durationMinutes != null && <p>本场时长 {durationMinutes} 分钟。</p>}
+            <div className="overlay-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setConfirmStart(false)}
+                disabled={starting}
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void handleStart()}
+                disabled={starting}
+              >
+                {starting ? '开卷中…' : '确认开卷'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

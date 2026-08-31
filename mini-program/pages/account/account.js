@@ -8,7 +8,9 @@ Page({
     displayName: '',
     employeeNo: '',
     miniProgramBound: false,
+    phoneMasked: '',
     forceChange: false,
+    forceBind: false,
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
@@ -28,19 +30,20 @@ Page({
 
   onLoad(options) {
     const forceChange = options.forceChange === '1'
+    const forceBind = options.forceBind === '1'
     this.setData({
       forceChange,
-      view: forceChange ? 'password' : 'menu',
-      panelTitle: forceChange ? '修改密码' : '',
+      forceBind,
+      view: forceChange ? 'password' : forceBind ? 'bind' : 'menu',
+      panelTitle: forceChange ? '修改密码' : forceBind ? '绑定微信' : '',
     })
-    if (forceChange) {
+    if (forceChange || forceBind) {
       wx.hideTabBar({ animation: false })
     }
   },
 
   onShow() {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess({ allowUnbound: true })) {
       return
     }
     this.refreshSession()
@@ -59,8 +62,13 @@ Page({
             displayName,
             employeeNo: session.employeeNo || '',
             miniProgramBound: !!session.miniProgramBound,
+            phoneMasked: session.phoneMasked || '',
             avatarInitial: displayName ? displayName.slice(0, 1) : '员',
           })
+          if (this.data.forceBind && session.miniProgramBound) {
+            wx.showTabBar({ animation: false })
+            wx.reLaunch({ url: '/pages/home/home' })
+          }
         }
       },
     })
@@ -78,6 +86,7 @@ Page({
   },
 
   onBackMenu() {
+    if (this.data.forceChange || this.data.forceBind) return
     this.setData({ view: 'menu', error: '', success: '' })
   },
 
@@ -150,7 +159,12 @@ Page({
           this.refreshSession()
           if (wasForceChange) {
             wx.showTabBar({ animation: false })
-            wx.reLaunch({ url: '/pages/home/home' })
+            const session = app.globalData.session || {}
+            if (!session.miniProgramBound) {
+              wx.reLaunch({ url: '/pages/account/account?forceBind=1' })
+            } else {
+              wx.reLaunch({ url: '/pages/home/home' })
+            }
           } else {
             this.setData({ view: 'menu' })
           }
@@ -168,16 +182,23 @@ Page({
   },
 
   onSendBindSms() {
-    const { bindPhone } = this.data
-    if (!bindPhone) {
-      this.setData({ error: '请输入手机号' })
+    const { bindPhone, phoneMasked } = this.data
+    if (!phoneMasked) {
+      this.setData({ error: '档案未登记手机号，请联系管理员在管理后台「员工 → 账号设置」填写后再绑定' })
       return
     }
-    this.setData({ bindLoading: true, error: '' })
+    if (!bindPhone) {
+      this.setData({ error: '请输入与档案一致的完整手机号' })
+      return
+    }
+    this.setData({ bindLoading: true, error: '', success: '' })
     wx.request({
       url: `${app.globalData.apiBase}/auth/sms/send`,
       method: 'POST',
-      header: { 'Content-Type': 'application/json' },
+      header: {
+        ...app.authHeader(),
+        'Content-Type': 'application/json',
+      },
       data: { phone: bindPhone, purpose: 'bindMiniProgram' },
       success: (res) => {
         if (res.statusCode === 200) {
@@ -215,7 +236,7 @@ Page({
             success: '验证成功，请点击完成绑定',
           })
         } else {
-          this.setData({ error: res.data?.error?.message || '验证失败' })
+          this.setData({ error: res.data?.error?.message || '验证失败', success: '' })
         }
       },
       fail: () => {
@@ -245,17 +266,23 @@ Page({
         data: { verificationToken: bindToken, miniProgramOpenId: openId },
         success: (res) => {
           if (res.statusCode === 200) {
+            const wasForceBind = this.data.forceBind
             this.setData({
               success: '微信绑定成功',
               bindStep: 'idle',
               bindPhone: '',
               bindCode: '',
               bindToken: '',
-              view: 'menu',
+              view: wasForceBind ? 'bind' : 'menu',
+              forceBind: false,
             })
             this.refreshSession()
+            if (wasForceBind) {
+              wx.showTabBar({ animation: false })
+              wx.reLaunch({ url: '/pages/home/home' })
+            }
           } else {
-            this.setData({ error: res.data?.error?.message || '绑定失败' })
+            this.setData({ error: res.data?.error?.message || '绑定失败', success: '' })
           }
         },
         fail: () => {
@@ -308,16 +335,23 @@ Page({
   },
 
   onSendUnbindSms() {
-    const { unbindPhone } = this.data
-    if (!unbindPhone) {
-      this.setData({ error: '请输入手机号' })
+    const { unbindPhone, phoneMasked } = this.data
+    if (!phoneMasked) {
+      this.setData({ error: '档案未登记手机号，请联系管理员维护后再解绑' })
       return
     }
-    this.setData({ bindLoading: true, error: '' })
+    if (!unbindPhone) {
+      this.setData({ error: '请输入与档案一致的完整手机号' })
+      return
+    }
+    this.setData({ bindLoading: true, error: '', success: '' })
     wx.request({
       url: `${app.globalData.apiBase}/auth/sms/send`,
       method: 'POST',
-      header: { 'Content-Type': 'application/json' },
+      header: {
+        ...app.authHeader(),
+        'Content-Type': 'application/json',
+      },
       data: { phone: unbindPhone, purpose: 'unbindMiniProgram' },
       success: (res) => {
         if (res.statusCode === 200) {

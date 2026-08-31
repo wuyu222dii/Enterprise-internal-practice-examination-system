@@ -125,6 +125,7 @@ paths:
       summary: 发送短信验证码
       security: []
       x-fr-ids: [FR-AUTH-03]
+      x-page-ids: [EX-01, MP-12, AD-01]
       requestBody:
         required: true
         content:
@@ -144,6 +145,7 @@ paths:
       summary: 校验短信验证码
       security: []
       x-fr-ids: [FR-AUTH-03]
+      x-page-ids: [EX-01, MP-12, AD-01]
       requestBody:
         required: true
         content:
@@ -251,7 +253,7 @@ paths:
       summary: 短信验证后重置密码
       security: []
       x-fr-ids: [FR-AUTH-03]
-      x-page-ids: [EX-01, MP-12]
+      x-page-ids: [EX-01, MP-12, AD-01]
       requestBody:
         required: true
         content:
@@ -718,6 +720,33 @@ paths:
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /questions/{id}/copy:
+    post:
+      tags: [QuestionBank]
+      operationId: copyQuestion
+      summary: 复制为新题（独立逻辑题目；不停用原题）
+      x-fr-ids: [FR-QST-03]
+      x-page-ids: [AD-07]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetBankId, categoryId]
+              properties:
+                targetBankId:
+                  type: string
+                categoryId:
+                  type: string
+                knowledgePointId:
+                  type: string
+      responses:
+        '201':
           $ref: '#/components/responses/SuccessEmpty'
 
   /questions/{id}/versions:
@@ -1309,8 +1338,22 @@ paths:
     patch:
       tags: [Exam]
       operationId: patchAdminExam
-      summary: 更新考试（草稿或说明）
+      summary: 更新考试（草稿可改标题与说明；已发布仅允许修订说明并写入修订史）
       x-fr-ids: [FR-EXM-04]
+      x-page-ids: [AD-11, AD-13]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
+  /admin/exams/{id}/description-revisions:
+    get:
+      tags: [Exam]
+      operationId: listExamDescriptionRevisions
+      summary: 已发布考试说明修订史
+      x-fr-ids: [FR-EXM-04]
+      x-page-ids: [AD-13]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       responses:
@@ -1473,18 +1516,37 @@ paths:
     get:
       tags: [Exam]
       operationId: listExamTasks
-      summary: 本人正式考试任务
+      summary: 本人正式考试任务（含 examCode、portalUrl、规则摘要）
       x-fr-ids: [FR-EXM-05]
       x-page-ids: [MP-09, EX-02]
       responses:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
 
+  /exams/locate:
+    get:
+      tags: [Exam]
+      operationId: locateExamByCode
+      summary: 按考试码定位本人可参加的考试；无效码与无资格统一 404
+      x-fr-ids: [FR-EXM-05]
+      x-page-ids: [EX-02]
+      parameters:
+        - name: examCode
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /exams/{id}:
     get:
       tags: [Exam]
       operationId: getExamTaskDetail
-      summary: 任务详情（脱敏）
+      summary: 任务详情（脱敏）；须校验当前员工应考分配
       x-fr-ids: [FR-EXM-05, FR-SCR-04]
       x-page-ids: [MP-10, EX-03]
       parameters:
@@ -1492,6 +1554,8 @@ paths:
       responses:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /exams/{id}/active-attempt:
     get:
@@ -1978,11 +2042,22 @@ paths:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
 
+  /admin/audit-logs/integrity:
+    get:
+      tags: [Audit]
+      operationId: verifyAuditLogIntegrity
+      summary: 审计哈希链完整性校验（失败只读告警，不可修复原日志）
+      x-fr-ids: [FR-OPS-03]
+      x-page-ids: [AD-16]
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessEmpty'
+
   /admin/audit-logs:
     get:
       tags: [Audit]
       operationId: listAuditLogs
-      summary: 审计日志查询
+      summary: 审计日志查询（只追加、不可改删）
       x-fr-ids: [FR-OPS-03]
       x-page-ids: [AD-16]
       x-sys-ids: [SYS-07]
@@ -2122,13 +2197,16 @@ components:
 
     ResponseMeta:
       type: object
-      required: [serverNow, requestId]
+      required: [serverNow, requestId, timezone]
       properties:
         serverNow:
           type: string
           format: date-time
         requestId:
           type: string
+        timezone:
+          type: string
+          description: 企业展示时区（CMP-01），例如 Asia/Shanghai
 
     ApiError:
       type: object
@@ -2207,6 +2285,8 @@ components:
           type: boolean
         miniProgramBound:
           type: boolean
+        phoneMasked:
+          type: [string, 'null']
 
     SessionResponse:
       allOf:
@@ -2619,6 +2699,8 @@ components:
           type: string
         examId:
           type: string
+        remainingAttempts:
+          type: integer
         lifecycle:
           $ref: '#/components/schemas/ExamLifecycle'
         resultState:

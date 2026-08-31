@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -86,5 +87,21 @@ class OrganizationIntegrationTest {
                                 """))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("ORG_LAST_OUTAGE_ADMIN"));
+    }
+
+    @Test
+    void updateEmployeePhoneReturnsMaskedValue() throws Exception {
+        mockMvc.perform(patch("/employees/emp_admin")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"phone": "13800001234"}
+                                """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/employees/emp_admin")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.phoneMasked").value("138****1234"));
     }
 }

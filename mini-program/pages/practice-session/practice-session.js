@@ -18,8 +18,7 @@ Page({
   },
 
   onLoad(options) {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess()) {
       return
     }
     const sessionId = options.id

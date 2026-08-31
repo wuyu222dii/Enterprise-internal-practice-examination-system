@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../api/client'
+import { formatEnterpriseTime } from '../formatTime'
 
 interface ResultVisibility {
   summaryVisible: boolean
@@ -19,6 +20,8 @@ interface ResultItem {
 
 interface AttemptResult {
   attemptId: string
+  examId?: string
+  remainingAttempts?: number
   resultState?: 'available' | 'closing' | 'locked' | 'cancelled'
   resultLocked?: boolean
   submitted?: boolean
@@ -77,7 +80,9 @@ export default function ResultPage() {
         <section className="card result-card" role="status">
           <h2>结果锁定，异常处理中，请等待企业通知</h2>
           {result.submitted && (
-            <p className="stub-text">已记录提交事实，官方成绩暂不可见。</p>
+            <p className="stub-text">
+              已记录提交事实{result.submittedAt ? ` · ${formatEnterpriseTime(result.submittedAt)}` : ''}，官方成绩暂不可见。
+            </p>
           )}
         </section>
       )}
@@ -168,6 +173,16 @@ export default function ResultPage() {
 
       <p>
         <Link to="/tasks">返回任务列表</Link>
+        {result
+          && result.examId
+          && (result.remainingAttempts ?? 0) > 0
+          && resultState !== 'cancelled'
+          && (
+            <>
+              {' · '}
+              <Link to={`/exams/${result.examId}`}>再次考试</Link>
+            </>
+          )}
       </p>
     </div>
   )

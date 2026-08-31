@@ -21,6 +21,7 @@
 
 - 后端 API 运行于 `http://localhost:8088/api/v1`
 - 微信开发者工具（稳定版）
+- 演示工号 `ADMIN001` / `Admin@123`（首登须改密）；档案手机种子为 `13800000001`。考试端演示工号 `EXAM001`，档案手机 `13800000002`。
 
 ## 本地开发步骤
 
@@ -40,13 +41,17 @@
 
 ## API 配置
 
-默认地址在 `app.js`：
+基址在 [`config.js`](config.js)，由 `app.js` 读取：
 
 ```js
-const API_BASE = 'http://localhost:8088/api/v1'
+module.exports = {
+  apiBase: 'http://localhost:8088/api/v1',
+}
 ```
 
-真机预览请改为电脑局域网 IP。生产环境改为 HTTPS 域名，并在微信公众平台配置 request 合法域名。
+真机预览改为电脑局域网 IP（例如 `http://192.168.x.x:8088/api/v1`）。生产改为 HTTPS 域名，并在微信公众平台配置 request 合法域名。不要新增可选的 `config.local.js` 再 `require`：微信会按编译期依赖打包，缺文件即失败。
+
+本地 `exam.sms.provider=mock` 时验证码固定 **123456**（后端日志会打印 mock 码）。档案无手机号时须先在管理后台「员工 → 账号设置」保存后再绑定。
 
 ## 认证
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, apiFetch, newIdempotencyKey } from '../api/client'
+import { examCompatibility } from '../browserSupport'
 
 interface QuestionOption {
   key: string
@@ -40,6 +41,7 @@ interface AttemptDetail {
   attemptId: string
   examId: string
   attemptStatus: string
+  attemptNumber?: number
   runStatus?: string
   inObservation?: boolean
   resultLocked?: boolean
@@ -69,6 +71,7 @@ export default function ExamWorkbenchPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [confirmSubmit, setConfirmSubmit] = useState(false)
   const [remainingSec, setRemainingSec] = useState<number | null>(null)
   const [observationSec, setObservationSec] = useState(0)
   const saveTimers = useRef<Record<string, number>>({})
@@ -296,6 +299,10 @@ export default function ExamWorkbenchPage() {
       setError('存在未确认保存的答案，请等待保存完成后再交卷')
       return
     }
+    if (!confirmSubmit) {
+      setConfirmSubmit(true)
+      return
+    }
     setSubmitting(true)
     setError('')
     try {
@@ -313,9 +320,11 @@ export default function ExamWorkbenchPage() {
       if (err instanceof ApiError && err.code === 'ANS_IN_OBSERVATION') {
         setObserving(true)
         setRemainingSec(0)
+        setConfirmSubmit(false)
         return
       }
       setError(err instanceof Error ? err.message : '交卷失败')
+      setConfirmSubmit(false)
     } finally {
       setSubmitting(false)
     }
@@ -412,6 +421,37 @@ export default function ExamWorkbenchPage() {
           </div>
         </div>
       )}
+      {confirmSubmit && !submitting && (
+        <div className="workbench-overlay" role="dialog" aria-modal="true">
+          <div className="overlay-card">
+            <h2>确认交卷</h2>
+            <p>
+              已答 {answeredSet.size} 题，未答 {Math.max(0, items.length - answeredSet.size)} 题。
+            </p>
+            <p>提交后不可再改答案。本次为第 {attempt?.attemptNumber ?? '—'} 次尝试。</p>
+            <div className="overlay-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setConfirmSubmit(false)}
+              >
+                返回检查
+              </button>
+              <button type="button" className="btn-primary" onClick={() => void handleSubmit()}>
+                确认交卷
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {submitting && (
+        <div className="workbench-overlay overlay-busy" role="status" aria-live="polite">
+          <div className="overlay-card">
+            <h2>交卷处理中</h2>
+            <p>正在提交本次作答，请不要关闭页面。</p>
+          </div>
+        </div>
+      )}
 
       <header className="page-header with-actions">
         <div>
@@ -427,6 +467,9 @@ export default function ExamWorkbenchPage() {
       </header>
 
       {error && <p className="form-error">{error}</p>}
+      {!examCompatibility().ok && (
+        <p className="compat-banner risk">当前浏览器或视口不符合开卷要求。在途考试可继续作答，但不保证版面完整。</p>
+      )}
       {loading && <p>加载中…</p>}
 
       {attempt && paper && (
@@ -489,7 +532,7 @@ export default function ExamWorkbenchPage() {
                 onClick={handleSubmit}
                 disabled={submitting || readOnly}
               >
-                {submitting ? '交卷中…' : '交卷'}
+                {submitting ? '交卷处理中…' : '交卷'}
               </button>
             </div>
             <p>

@@ -17,6 +17,7 @@ public class Exam {
     @Column(name = "open_start_at") private Instant openStartAt;
     @Column(name = "stop_attempt_at") private Instant stopAttemptAt;
     @Column(name = "published_version_id", length = 32) private String publishedVersionId;
+    @Column(name = "exam_code", length = 16) private String examCode;
     @Column(name = "result_locked", nullable = false) private boolean resultLocked;
     @Column(name = "employee_visible_reason", columnDefinition = "text") private String employeeVisibleReason;
     @JsonColumn @Column(name = "wizard_config", nullable = false) private String wizardConfig = "{}";
@@ -40,6 +41,8 @@ public class Exam {
     public void setStopAttemptAt(Instant stopAttemptAt) { this.stopAttemptAt = stopAttemptAt; }
     public String getPublishedVersionId() { return publishedVersionId; }
     public void setPublishedVersionId(String publishedVersionId) { this.publishedVersionId = publishedVersionId; }
+    public String getExamCode() { return examCode; }
+    public void setExamCode(String examCode) { this.examCode = examCode; }
     public boolean isResultLocked() { return resultLocked; }
     public void setResultLocked(boolean resultLocked) { this.resultLocked = resultLocked; }
     public String getEmployeeVisibleReason() { return employeeVisibleReason; }

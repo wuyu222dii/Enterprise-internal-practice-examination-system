@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { clearAuth, getStoredSession } from '../api/client'
+import { examCompatibility } from '../browserSupport'
 
 interface SessionDto {
   displayName: string
@@ -8,6 +10,15 @@ interface SessionDto {
 
 export default function ExamShell({ children }: { children: React.ReactNode }) {
   const session = getStoredSession<SessionDto>()
+  const [compat, setCompat] = useState(() => examCompatibility())
+
+  useEffect(() => {
+    function refresh() {
+      setCompat(examCompatibility())
+    }
+    window.addEventListener('resize', refresh)
+    return () => window.removeEventListener('resize', refresh)
+  }, [])
 
   function handleLogout() {
     clearAuth()
@@ -31,6 +42,11 @@ export default function ExamShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </header>
+      {!compat.ok && (
+        <div className="compat-banner" role="status">
+          {compat.message}
+        </div>
+      )}
       <div className="exam-shell-body">{children}</div>
     </div>
   )

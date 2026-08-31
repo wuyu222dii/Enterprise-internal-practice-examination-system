@@ -1,3 +1,5 @@
+const { lifecycleLabel } = require('../../utils/examLabels')
+const { formatEnterpriseTime } = require('../../utils/formatTime')
 const app = getApp()
 
 Page({
@@ -11,8 +13,7 @@ Page({
   },
 
   onShow() {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess()) {
       return
     }
     this.loadRecords()
@@ -81,8 +82,8 @@ Page({
         header: app.authHeader(),
         success: (res) => {
           if (res.statusCode === 200 && res.data?.data) {
-            const { lifecycleLabel } = require('../../utils/examLabels')
             const examRecords = (res.data.data.items || []).map((item) => {
+              const visibility = item.visibility || {}
               const locked = item.resultLocked || item.resultState === 'locked'
               const closing = item.resultState === 'closing' || item.lifecycle === 'closing'
               const cancelled = item.resultState === 'cancelled' || item.lifecycle === 'cancelled'
@@ -93,11 +94,21 @@ Page({
               if (locked) notice = '结果锁定，异常处理中，请等待企业通知'
               else if (closing) notice = '考试正在收尾，成绩暂不披露'
               else if (cancelled) notice = item.employeeVisibleReason || '本场考试已取消'
+              let summary = ''
+              if (visibility.summaryVisible && item.totalScore != null) {
+                summary = `官方成绩 ${item.totalScore}/${item.maxScore}`
+                if (visibility.passConclusionVisible && item.passed != null) {
+                  summary += item.passed ? ' · 通过' : ' · 未通过'
+                }
+              }
               return {
                 ...item,
                 lifecycleLabel: lifecycleLabel(item.lifecycle),
                 fact,
                 notice,
+                summary,
+                submittedAtText: formatEnterpriseTime(item.submittedAt),
+                canReview: !!visibility.perItemReviewAllowed,
               }
             })
             this.setData({ examRecords })
@@ -125,5 +136,12 @@ Page({
     if (status === 'completed' || status === 'terminated') {
       wx.navigateTo({ url: `/pages/review/review?kind=mock&id=${id}` })
     }
+  },
+
+  onOpenExamReview(e) {
+    const id = e.currentTarget.dataset.id
+    const canReview = e.currentTarget.dataset.review
+    if (!id || String(canReview) !== '1') return
+    wx.navigateTo({ url: `/pages/review/review?kind=exam&id=${id}` })
   },
 })

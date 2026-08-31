@@ -3,6 +3,7 @@ package com.examsystem.modules.question;
 import com.examsystem.common.ApiResponse;
 import com.examsystem.common.MetaFactory;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.question.dto.CopyQuestionRequest;
 import com.examsystem.modules.question.dto.CreateQuestionBankRequest;
 import com.examsystem.modules.question.dto.CreateQuestionRequest;
 import com.examsystem.modules.question.dto.QuestionVersionInput;
@@ -123,6 +124,15 @@ public class QuestionController {
     public ApiResponse<Object> updateQuestion(@PathVariable String id, @RequestBody Map<String, String> body) {
         questionService.updateQuestion(id, body.get("status"), body.get("categoryId"), body.get("knowledgePointId"));
         return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
+    }
+
+    @PostMapping("/questions/{id}/copy")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> copyQuestion(
+            @PathVariable String id,
+            @Valid @RequestBody CopyQuestionRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok(questionService.copyQuestion(id, request), metaFactory.build()));
     }
 
     @GetMapping("/questions/{id}/versions")

@@ -16,6 +16,14 @@
       <text class="chevron">›</text>
     </view>
 
+    <view wx:if="{{activeMock}}" class="continue-card" bindtap="onContinueMock">
+      <view class="continue-copy">
+        <view class="continue-title">继续进行中的模拟</view>
+        <view class="continue-meta">{{activeMock.questionCount}} 题 · {{activeMock.durationMinutes}} 分钟</view>
+      </view>
+      <text class="chevron">›</text>
+    </view>
+
     <view wx:if="{{bankName}}" class="card">
       <view class="bank-top">
         <view class="card-title bank-title">{{bankName}}</view>
@@ -56,6 +64,28 @@
           <view class="mode-title">错题练习</view>
           <view class="mode-sub">重做历史错题</view>
         </view>
+      </view>
+    </view>
+
+    <view wx:if="{{examTodos.length > 0}}" class="card exam-todo">
+      <view class="card-title">正式考试待办</view>
+      <view class="card-meta">仅查看任务与考试码，正式开卷请使用电脑端</view>
+      <view
+        wx:for="{{examTodos}}"
+        wx:key="id"
+        class="todo-item"
+        data-id="{{item.id}}"
+        bindtap="onOpenExamTodo"
+      >
+        <view class="todo-title">{{item.title}}</view>
+        <view class="domain-row">
+          <view class="domain-cell"><text class="dt">生命周期</text><text class="dd">{{item.domain.lifecycle}}</text></view>
+          <view class="domain-cell"><text class="dt">运行</text><text class="dd">{{item.domain.run}}</text></view>
+          <view class="domain-cell"><text class="dt">参与</text><text class="dd">{{item.domain.participation}}</text></view>
+          <view class="domain-cell"><text class="dt">尝试</text><text class="dd">{{item.domain.attempt}}</text></view>
+          <view class="domain-cell"><text class="dt">结果</text><text class="dd">{{item.domain.result}}</text></view>
+        </view>
+        <view class="todo-meta" wx:if="{{item.examCode}}">考试码 {{item.examCode}}</view>
       </view>
     </view>
   </view>

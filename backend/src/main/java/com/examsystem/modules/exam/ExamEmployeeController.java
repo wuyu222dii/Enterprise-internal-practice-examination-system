@@ -29,14 +29,9 @@ public class ExamEmployeeController {
         return ApiResponse.ok(examService.listExamTasks(), metaFactory.build());
     }
 
-    @GetMapping("/{id}")
-    public ApiResponse<Map<String, Object>> getExam(@PathVariable String id) {
-        return ApiResponse.ok(examService.getExamTaskDetail(id), metaFactory.build());
-    }
-
-    @GetMapping("/{id}/active-attempt")
-    public ApiResponse<Map<String, Object>> getActiveAttempt(@PathVariable String id) {
-        return ApiResponse.ok(examService.getActiveAttemptForExam(id), metaFactory.build());
+    @GetMapping("/locate")
+    public ApiResponse<Map<String, Object>> locate(@RequestParam String examCode) {
+        return ApiResponse.ok(examService.locateExamByCode(examCode), metaFactory.build());
     }
 
     @GetMapping("/records")
@@ -45,5 +40,15 @@ public class ExamEmployeeController {
             @RequestParam(defaultValue = "20") int pageSize
     ) {
         return ApiResponse.ok(examService.listExamRecords(page, pageSize), metaFactory.build());
+    }
+
+    @GetMapping("/{id}")
+    public ApiResponse<Map<String, Object>> getExam(@PathVariable String id) {
+        return ApiResponse.ok(examService.getExamTaskDetail(id), metaFactory.build());
+    }
+
+    @GetMapping("/{id}/active-attempt")
+    public ApiResponse<Map<String, Object>> getActiveAttempt(@PathVariable String id) {
+        return ApiResponse.ok(examService.getActiveAttemptForExam(id), metaFactory.build());
     }
 }

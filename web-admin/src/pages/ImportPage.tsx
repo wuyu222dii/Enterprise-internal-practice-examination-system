@@ -35,6 +35,9 @@ interface ImportPreview {
   errorCount: number
   validRows: ValidRow[]
   errorRows: ErrorRow[]
+  pendingHierarchy?: {
+    categories?: string[]
+  }
 }
 
 export default function ImportPage() {
@@ -48,6 +51,8 @@ export default function ImportPage() {
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  const [hierarchyConfirmed, setHierarchyConfirmed] = useState(false)
+  const [hierarchyCategory, setHierarchyCategory] = useState('')
 
   useEffect(() => {
     apiFetch<QuestionBankDto[]>('/question-banks')
@@ -58,7 +63,24 @@ export default function ImportPage() {
   const loadPreview = useCallback(async (taskId: string) => {
     const { data } = await apiFetch<ImportPreview>(`/import/tasks/${taskId}/preview`)
     setPreview(data)
+    const pending = data.pendingHierarchy?.categories ?? []
+    setHierarchyCategory(pending[0] ?? '')
+    setHierarchyConfirmed(pending.length === 0)
   }, [])
+
+  useEffect(() => {
+    const taskId = searchParams.get('taskId')
+    if (!taskId) return
+    setLoading(true)
+    apiFetch<ImportTaskDto>(`/import/tasks/${taskId}`)
+      .then(async ({ data }) => {
+        setTask(data)
+        setBankId(data.questionBankId)
+        await loadPreview(data.id)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : '加载任务失败'))
+      .finally(() => setLoading(false))
+  }, [searchParams, loadPreview])
 
   async function handleUpload(e: FormEvent) {
     e.preventDefault()
@@ -93,12 +115,24 @@ export default function ImportPage() {
 
   async function handleConfirm() {
     if (!task || !preview?.confirmToken) return
+    const pending = preview.pendingHierarchy?.categories ?? []
+    if (pending.length > 0 && !hierarchyConfirmed) {
+      setError('存在未知分类，请确认创建后再导入')
+      return
+    }
     setConfirming(true)
     setError('')
     try {
+      const hierarchyConfirm =
+        pending.length > 0 && hierarchyCategory
+          ? { categoryName: hierarchyCategory }
+          : undefined
       await apiFetch(`/import/tasks/${task.id}/confirm`, {
         method: 'POST',
-        body: JSON.stringify({ confirmToken: preview.confirmToken }),
+        body: JSON.stringify({
+          confirmToken: preview.confirmToken,
+          ...(hierarchyConfirm ? { hierarchyConfirm } : {}),
+        }),
       })
       setConfirmed(true)
       setTask({ ...task, status: 'completed' })
@@ -247,16 +281,47 @@ export default function ImportPage() {
           )}
 
           {preview.importableCount > 0 && !confirmed && task?.status === 'preview_ready' && (
-            <p style={{ marginTop: '1rem' }}>
+            <div style={{ marginTop: '1rem' }}>
+              {(preview.pendingHierarchy?.categories?.length ?? 0) > 0 && (
+                <div className="hierarchy-confirm">
+                  <p>Excel 中含未知分类，确认后将创建并作为导入目标分类：</p>
+                  <ul>
+                    {preview.pendingHierarchy?.categories?.map((name) => (
+                      <li key={name}>{name}</li>
+                    ))}
+                  </ul>
+                  <label>
+                    创建并归入
+                    <select
+                      value={hierarchyCategory}
+                      onChange={(e) => setHierarchyCategory(e.target.value)}
+                    >
+                      {preview.pendingHierarchy?.categories?.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={hierarchyConfirmed}
+                      onChange={(e) => setHierarchyConfirmed(e.target.checked)}
+                    />
+                    确认创建未知分类
+                  </label>
+                </div>
+              )}
               <button
                 type="button"
                 className="btn-primary"
                 onClick={handleConfirm}
-                disabled={confirming}
+                disabled={confirming || ((preview.pendingHierarchy?.categories?.length ?? 0) > 0 && !hierarchyConfirmed)}
               >
                 {confirming ? '导入中…' : `确认导入 ${preview.importableCount} 题`}
               </button>
-            </p>
+            </div>
           )}
 
           {confirmed && <p className="form-success">导入完成</p>}

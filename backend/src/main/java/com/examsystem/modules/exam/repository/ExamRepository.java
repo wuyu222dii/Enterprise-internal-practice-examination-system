@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface ExamRepository extends JpaRepository<Exam, String> {
     Page<Exam> findAllByOrderByCreatedAtDesc(Pageable pageable);
@@ -13,4 +14,8 @@ public interface ExamRepository extends JpaRepository<Exam, String> {
     List<Exam> findByLifecycleAndRunStatus(String lifecycle, String runStatus);
 
     List<Exam> findByLifecycle(String lifecycle);
+
+    Optional<Exam> findByExamCode(String examCode);
+
+    boolean existsByExamCode(String examCode);
 }

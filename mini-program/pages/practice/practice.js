@@ -27,6 +27,8 @@ Page({
     kpNames: ['全部知识点'],
     selectedKpIndex: 0,
     selectedKpName: '全部知识点',
+    restartRound: false,
+    sequentialRestartAvailable: false,
     loading: false,
     starting: false,
     error: '',
@@ -42,8 +44,7 @@ Page({
   },
 
   onShow() {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess()) {
       return
     }
     this.loadData()
@@ -74,6 +75,8 @@ Page({
               banks,
               selectedBankId: selected?.id || '',
               selectedBankName: selected?.name || '',
+              sequentialRestartAvailable: !!selected?.sequentialRestartAvailable,
+              restartRound: false,
             })
             if (this.data.mode === 'targeted' && selected?.id) {
               this.fetchTaxonomy(selected.id).then(resolve).catch(reject)
@@ -140,7 +143,12 @@ Page({
     const idx = Number(e.detail.value)
     const bank = this.data.banks[idx]
     if (!bank) return
-    this.setData({ selectedBankId: bank.id, selectedBankName: bank.name })
+    this.setData({
+      selectedBankId: bank.id,
+      selectedBankName: bank.name,
+      sequentialRestartAvailable: !!bank.sequentialRestartAvailable,
+      restartRound: false,
+    })
     if (this.data.mode === 'targeted') {
       this.fetchTaxonomy(bank.id)
     }
@@ -172,6 +180,10 @@ Page({
     this.setData({ questionCount: COUNT_OPTIONS[Number(e.detail.value)] || 10 })
   },
 
+  onToggleRestart() {
+    this.setData({ restartRound: !this.data.restartRound })
+  },
+
   onContinue() {
     const { activeSession } = this.data
     if (activeSession?.id) {
@@ -191,6 +203,9 @@ Page({
       questionBankId: selectedBankId,
       mode,
       questionCount,
+    }
+    if (mode === 'sequential' && this.data.restartRound) {
+      payload.restartRound = true
     }
     if (mode === 'targeted') {
       const category = selectedCategoryIndex > 0 ? categories[selectedCategoryIndex - 1] : null

@@ -6,6 +6,7 @@ const SESSION_KEY = 'exam_admin_session'
 export interface ResponseMeta {
   serverNow: string
   requestId: string
+  timezone?: string
 }
 
 export interface ApiResponse<T> {

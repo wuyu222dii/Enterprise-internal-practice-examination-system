@@ -35,6 +35,10 @@ exam:
     probe-enabled: false
   wechat:
     mock-openid: true
+  portal:
+    base-url: http://localhost:5174
+  display:
+    timezone: Asia/Shanghai
 
 logging:
   level:

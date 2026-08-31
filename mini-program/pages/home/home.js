@@ -16,20 +16,17 @@ Page({
     bankName: '',
     activeSession: null,
     modeLabel: '练习',
+    examTodos: [],
+    activeMock: null,
     loading: false,
     error: '',
   },
 
   onShow() {
+    if (!app.requireAccess()) {
+      return
+    }
     const session = app.globalData.session || wx.getStorageSync('exam_session')
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
-      return
-    }
-    if (session?.mustChangePassword) {
-      wx.reLaunch({ url: '/pages/account/account?forceChange=1' })
-      return
-    }
     this.setData({
       displayName: session?.displayName || session?.employeeNo || '员工',
       employeeNo: session?.employeeNo || '',
@@ -39,7 +36,7 @@ Page({
 
   loadData() {
     this.setData({ loading: true, error: '' })
-    Promise.all([this.fetchBanks(), this.fetchActiveSession()])
+    Promise.all([this.fetchBanks(), this.fetchActiveSession(), this.fetchActiveMock(), this.fetchExamTodos()])
       .catch(() => {
         this.setData({ error: '加载失败，请稍后重试' })
       })
@@ -120,5 +117,59 @@ Page({
     if (this.guardActive()) return
     const mode = e.currentTarget.dataset.mode
     wx.navigateTo({ url: `/pages/practice/practice?mode=${mode}` })
+  },
+
+  fetchActiveMock() {
+    return new Promise((resolve, reject) => {
+      wx.request({
+        url: `${app.globalData.apiBase}/mock/attempts/active`,
+        header: app.authHeader(),
+        success: (res) => {
+          const attempt = res.statusCode === 200 && res.data?.data?.id ? res.data.data : null
+          this.setData({ activeMock: attempt })
+          resolve()
+        },
+        fail: reject,
+      })
+    })
+  },
+
+  onContinueMock() {
+    const { activeMock } = this.data
+    if (activeMock?.id) {
+      wx.navigateTo({
+        url: `/pages/mock-exam/mock-exam?id=${activeMock.id}`,
+      })
+    }
+  },
+
+  fetchExamTodos() {
+    const { examDomain } = require('../../utils/examLabels')
+    return new Promise((resolve, reject) => {
+      wx.request({
+        url: `${app.globalData.apiBase}/exams/tasks`,
+        header: app.authHeader(),
+        success: (res) => {
+          if (res.statusCode === 200 && Array.isArray(res.data?.data)) {
+            const examTodos = res.data.data.map((item) => ({
+              ...item,
+              domain: examDomain(item),
+            }))
+            this.setData({ examTodos })
+            resolve()
+          } else {
+            reject()
+          }
+        },
+        fail: reject,
+      })
+    })
+  },
+
+  onOpenExamTodo(e) {
+    const id = e.currentTarget.dataset.id
+    if (id) {
+      wx.navigateTo({ url: `/pages/exam-detail/exam-detail?id=${id}` })
+    }
   },
 })

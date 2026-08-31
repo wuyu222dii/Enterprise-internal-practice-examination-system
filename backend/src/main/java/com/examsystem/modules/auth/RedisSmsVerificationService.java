@@ -7,6 +7,7 @@ import com.examsystem.common.LogSanitizer;
 import com.examsystem.modules.auth.sms.SmsGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -25,12 +26,20 @@ public class RedisSmsVerificationService implements SmsVerificationService {
     private static final Duration TOKEN_TTL = Duration.ofMinutes(10);
     private static final Duration RATE_LIMIT = Duration.ofMinutes(1);
 
+    private static final String MOCK_CODE = "123456";
+
     private final RedisTemplate<String, String> redisTemplate;
     private final SmsGateway smsGateway;
+    private final String smsProvider;
 
-    public RedisSmsVerificationService(RedisTemplate<String, String> redisTemplate, SmsGateway smsGateway) {
+    public RedisSmsVerificationService(
+            RedisTemplate<String, String> redisTemplate,
+            SmsGateway smsGateway,
+            @Value("${exam.sms.provider:mock}") String smsProvider
+    ) {
         this.redisTemplate = redisTemplate;
         this.smsGateway = smsGateway;
+        this.smsProvider = smsProvider;
     }
 
     @Override
@@ -39,11 +48,21 @@ public class RedisSmsVerificationService implements SmsVerificationService {
         if (Boolean.TRUE.equals(redisTemplate.hasKey(rateKey))) {
             throw BusinessException.of(ErrorCode.AUTH_SMS_RATE_LIMITED, "发送过于频繁，请稍后再试", 429);
         }
-        String code = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
+        String code = isMockProvider()
+                ? MOCK_CODE
+                : String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
         redisTemplate.opsForValue().set(codeKey(phone, purpose), code, CODE_TTL);
         redisTemplate.opsForValue().set(rateKey, "1", RATE_LIMIT);
         smsGateway.send(phone, purpose, code);
-        log.info("SMS dispatched phone={} purpose={}", LogSanitizer.maskPhone(phone), purpose);
+        if (isMockProvider()) {
+            log.info("SMS mock code={} phone={} purpose={}", MOCK_CODE, LogSanitizer.maskPhone(phone), purpose);
+        } else {
+            log.info("SMS dispatched phone={} purpose={}", LogSanitizer.maskPhone(phone), purpose);
+        }
+    }
+
+    private boolean isMockProvider() {
+        return smsProvider == null || smsProvider.isBlank() || "mock".equalsIgnoreCase(smsProvider);
     }
 
     @Override

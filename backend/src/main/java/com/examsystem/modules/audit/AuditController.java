@@ -37,4 +37,9 @@ public class AuditController {
                 metaFactory.build()
         );
     }
+
+    @GetMapping("/integrity")
+    public ApiResponse<Map<String, Object>> verifyIntegrity() {
+        return ApiResponse.ok(auditService.verifyIntegrity(), metaFactory.build());
+    }
 }

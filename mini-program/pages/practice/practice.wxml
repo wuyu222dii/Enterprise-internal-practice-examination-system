@@ -44,6 +44,10 @@
           <view class="field-input picker-value">{{questionCount}} 题</view>
         </picker>
       </view>
+      <view wx:if="{{mode === 'sequential'}}" class="field" bindtap="onToggleRestart">
+        <text class="field-label">长期进度</text>
+        <view class="field-input picker-value">{{restartRound ? '重新开始一轮' : (sequentialRestartAvailable ? '从上次进度继续' : '按题库顺序续做')}}</view>
+      </view>
       <button class="btn-primary" loading="{{starting}}" bindtap="onStart">开始练习</button>
       <view class="card-meta summary-line">本题量 {{questionCount}} 题{{mode === 'targeted' ? ' · ' + selectedCategoryName + ' · ' + selectedKpName : ''}}</view>
     </view>

@@ -39,6 +39,10 @@ server:
   port: 8088
   servlet:
     context-path: /api/v1
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
   tomcat:
     threads:
       max: 300
@@ -94,6 +98,10 @@ exam:
     mock-openid: ${EXAM_WECHAT_MOCK_OPENID:true}
     app-id: ${EXAM_WECHAT_APP_ID:}
     app-secret: ${EXAM_WECHAT_APP_SECRET:}
+  portal:
+    base-url: ${EXAM_PORTAL_BASE_URL:http://localhost:5174}
+  display:
+    timezone: ${EXAM_DISPLAY_TIMEZONE:Asia/Shanghai}
 
 management:
   endpoints:

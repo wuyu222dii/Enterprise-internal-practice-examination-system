@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -130,5 +131,79 @@ class PracticeMockIntegrationTest {
         mockMvc.perform(post("/mock/attempts/" + attemptId + "/abandon")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    void sequentialPracticeContinuesFromLastQuestionAndRestartRoundResets() throws Exception {
+        String token = TestAuthHelper.loginAdminForExamClient(mockMvc, objectMapper);
+        abandonActivePractice(token);
+
+        MvcResult first = mockMvc.perform(post("/practice/sessions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"questionBankId":"qb_demo","mode":"sequential","questionCount":2}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        JsonNode firstItems = objectMapper.readTree(first.getResponse().getContentAsString())
+                .path("data").path("items");
+        String firstSessionId = objectMapper.readTree(first.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+        String firstLastVersion = firstItems.get(1).path("questionVersionId").asText();
+
+        mockMvc.perform(post("/practice/sessions/" + firstSessionId + "/finish")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        MvcResult second = mockMvc.perform(post("/practice/sessions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"questionBankId":"qb_demo","mode":"sequential","questionCount":2}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        JsonNode secondItems = objectMapper.readTree(second.getResponse().getContentAsString())
+                .path("data").path("items");
+        String secondSessionId = objectMapper.readTree(second.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+        assertThat(secondItems.get(0).path("questionVersionId").asText()).isNotEqualTo(firstItems.get(0).path("questionVersionId").asText());
+        assertThat(secondItems.get(0).path("questionVersionId").asText()).isNotEqualTo(firstLastVersion);
+
+        mockMvc.perform(post("/practice/sessions/" + secondSessionId + "/abandon")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        MvcResult restarted = mockMvc.perform(post("/practice/sessions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"questionBankId":"qb_demo","mode":"sequential","questionCount":2,"restartRound":true}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        JsonNode restartedItems = objectMapper.readTree(restarted.getResponse().getContentAsString())
+                .path("data").path("items");
+        assertThat(restartedItems.get(0).path("questionVersionId").asText())
+                .isEqualTo(firstItems.get(0).path("questionVersionId").asText());
+
+        mockMvc.perform(post("/practice/sessions/"
+                        + objectMapper.readTree(restarted.getResponse().getContentAsString()).path("data").path("id").asText()
+                        + "/abandon")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
+    private void abandonActivePractice(String token) throws Exception {
+        MvcResult active = mockMvc.perform(get("/practice/sessions/active")
+                        .header("Authorization", "Bearer " + token))
+                .andReturn();
+        JsonNode data = objectMapper.readTree(active.getResponse().getContentAsString()).path("data");
+        if (data.hasNonNull("id") && !data.path("id").asText().isBlank()) {
+            mockMvc.perform(post("/practice/sessions/" + data.path("id").asText() + "/abandon")
+                            .header("Authorization", "Bearer " + token))
+                    .andReturn();
+        }
     }
 }

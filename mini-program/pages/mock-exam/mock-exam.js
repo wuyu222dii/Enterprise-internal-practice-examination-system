@@ -22,8 +22,7 @@ Page({
   saveTimer: null,
 
   onLoad(options) {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess()) {
       return
     }
     const attemptId = options.id

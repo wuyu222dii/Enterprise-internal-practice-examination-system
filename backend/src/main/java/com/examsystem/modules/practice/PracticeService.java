@@ -7,10 +7,12 @@ import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
 import com.examsystem.modules.practice.dto.CreatePracticeSessionRequest;
 import com.examsystem.modules.practice.entity.PracticeAnswer;
+import com.examsystem.modules.practice.entity.PracticeProgress;
 import com.examsystem.modules.practice.entity.PracticeSession;
 import com.examsystem.modules.practice.entity.PracticeSessionItem;
 import com.examsystem.modules.practice.entity.WrongBookEntry;
 import com.examsystem.modules.practice.repository.PracticeAnswerRepository;
+import com.examsystem.modules.practice.repository.PracticeProgressRepository;
 import com.examsystem.modules.practice.repository.PracticeSessionItemRepository;
 import com.examsystem.modules.practice.repository.PracticeSessionRepository;
 import com.examsystem.modules.practice.repository.WrongBookEntryRepository;
@@ -45,6 +47,7 @@ public class PracticeService {
     private final PracticeSessionItemRepository sessionItemRepository;
     private final PracticeAnswerRepository answerRepository;
     private final WrongBookEntryRepository wrongBookRepository;
+    private final PracticeProgressRepository progressRepository;
     private final QuestionBankRepository questionBankRepository;
     private final QuestionService questionService;
     private final ScoringService scoringService;
@@ -54,6 +57,7 @@ public class PracticeService {
             PracticeSessionItemRepository sessionItemRepository,
             PracticeAnswerRepository answerRepository,
             WrongBookEntryRepository wrongBookRepository,
+            PracticeProgressRepository progressRepository,
             QuestionBankRepository questionBankRepository,
             QuestionService questionService,
             ScoringService scoringService
@@ -62,14 +66,19 @@ public class PracticeService {
         this.sessionItemRepository = sessionItemRepository;
         this.answerRepository = answerRepository;
         this.wrongBookRepository = wrongBookRepository;
+        this.progressRepository = progressRepository;
         this.questionBankRepository = questionBankRepository;
         this.questionService = questionService;
         this.scoringService = scoringService;
     }
 
     public List<Map<String, Object>> listBanks() {
+        String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
+        Map<String, PracticeProgress> progressByBank = progressRepository.findByEmployeeId(employeeId).stream()
+                .collect(Collectors.toMap(PracticeProgress::getQuestionBankId, progress -> progress, (a, b) -> a));
         return questionBankRepository.findByPracticeEnabledTrueAndStatus("active").stream()
-                .map(this::bankToDto).toList();
+                .map(bank -> bankToDto(bank, progressByBank.get(bank.getId())))
+                .toList();
     }
 
     public List<Map<String, Object>> listTaxonomy(String bankId) {
@@ -101,11 +110,14 @@ public class PracticeService {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "暂无可用题目", 422);
         }
         if ("sequential".equals(request.mode())) {
-            versions.sort(Comparator.comparing(QuestionVersion::getId));
+            versions.sort(Comparator.comparing(QuestionVersion::getQuestionId).thenComparing(QuestionVersion::getId));
+            boolean restart = Boolean.TRUE.equals(request.restartRound());
+            versions = applySequentialCursor(employeeId, request.questionBankId(), versions, restart, count);
         } else {
             Collections.shuffle(versions);
+            versions = versions.subList(0, Math.min(count, versions.size()));
         }
-        List<QuestionVersion> selected = versions.subList(0, Math.min(count, versions.size()));
+        List<QuestionVersion> selected = versions;
 
         PracticeSession session = new PracticeSession();
         session.setId(IdGenerator.newId("prs"));
@@ -194,6 +206,9 @@ public class PracticeService {
         session.setStatus("finished");
         session.setFinishedAt(Instant.now());
         sessionRepository.save(session);
+        if ("sequential".equals(session.getMode())) {
+            updateSequentialProgress(session);
+        }
     }
 
     @Transactional
@@ -268,11 +283,62 @@ public class PracticeService {
                 .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "练习会话不存在", 404));
     }
 
-    private Map<String, Object> bankToDto(QuestionBank bank) {
+    private Map<String, Object> bankToDto(QuestionBank bank, PracticeProgress progress) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("id", bank.getId());
         dto.put("name", bank.getName());
+        dto.put("sequentialLastQuestionId", progress != null ? progress.getLastQuestionId() : null);
+        dto.put("sequentialRestartAvailable", progress != null && progress.getLastQuestionId() != null);
         return dto;
+    }
+
+    private List<QuestionVersion> applySequentialCursor(
+            String employeeId,
+            String bankId,
+            List<QuestionVersion> ordered,
+            boolean restart,
+            int count
+    ) {
+        PracticeProgress progress = progressRepository.findByEmployeeIdAndQuestionBankId(employeeId, bankId)
+                .orElse(null);
+        if (restart && progress != null) {
+            progress.setLastQuestionId(null);
+            progressRepository.save(progress);
+        }
+        String cursor = restart || progress == null ? null : progress.getLastQuestionId();
+        int start = 0;
+        if (cursor != null) {
+            for (int i = 0; i < ordered.size(); i++) {
+                if (cursor.equals(ordered.get(i).getQuestionId())) {
+                    start = i + 1;
+                    break;
+                }
+            }
+        }
+        List<QuestionVersion> remaining = start >= ordered.size()
+                ? ordered
+                : ordered.subList(start, ordered.size());
+        return new ArrayList<>(remaining.subList(0, Math.min(count, remaining.size())));
+    }
+
+    private void updateSequentialProgress(PracticeSession session) {
+        List<PracticeSessionItem> items = sessionItemRepository
+                .findByPracticeSessionIdOrderByItemOrderAsc(session.getId());
+        if (items.isEmpty()) {
+            return;
+        }
+        QuestionVersion last = questionService.requireVersion(items.get(items.size() - 1).getQuestionVersionId());
+        PracticeProgress progress = progressRepository
+                .findByEmployeeIdAndQuestionBankId(session.getEmployeeId(), session.getQuestionBankId())
+                .orElseGet(() -> {
+                    PracticeProgress created = new PracticeProgress();
+                    created.setId(IdGenerator.newId("prp"));
+                    created.setEmployeeId(session.getEmployeeId());
+                    created.setQuestionBankId(session.getQuestionBankId());
+                    return created;
+                });
+        progress.setLastQuestionId(last.getQuestionId());
+        progressRepository.save(progress);
     }
 
     private void upsertWrongBook(String employeeId, String questionVersionId) {

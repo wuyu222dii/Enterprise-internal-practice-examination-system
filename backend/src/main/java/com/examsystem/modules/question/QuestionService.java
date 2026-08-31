@@ -5,8 +5,10 @@ import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
+import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.question.dto.CreateQuestionBankRequest;
 import com.examsystem.modules.question.dto.CreateQuestionRequest;
+import com.examsystem.modules.question.dto.CopyQuestionRequest;
 import com.examsystem.modules.question.dto.QuestionVersionInput;
 import com.examsystem.modules.question.dto.UpdateQuestionBankRequest;
 import com.examsystem.modules.question.entity.Category;
@@ -39,19 +41,22 @@ public class QuestionService {
     private final KnowledgePointRepository knowledgePointRepository;
     private final QuestionRepository questionRepository;
     private final QuestionVersionRepository questionVersionRepository;
+    private final AuditService auditService;
 
     public QuestionService(
             QuestionBankRepository questionBankRepository,
             CategoryRepository categoryRepository,
             KnowledgePointRepository knowledgePointRepository,
             QuestionRepository questionRepository,
-            QuestionVersionRepository questionVersionRepository
+            QuestionVersionRepository questionVersionRepository,
+            AuditService auditService
     ) {
         this.questionBankRepository = questionBankRepository;
         this.categoryRepository = categoryRepository;
         this.knowledgePointRepository = knowledgePointRepository;
         this.questionRepository = questionRepository;
         this.questionVersionRepository = questionVersionRepository;
+        this.auditService = auditService;
     }
 
     public List<Map<String, Object>> listBanks() {
@@ -187,6 +192,57 @@ public class QuestionService {
         QuestionVersion version = createVersionEntity(question.getId(), 1, request.version());
         questionVersionRepository.save(version);
         return questionToDto(question);
+    }
+
+    @Transactional
+    public Map<String, Object> copyQuestion(String sourceId, CopyQuestionRequest request) {
+        SecurityUtils.requireAdmin();
+        Question source = getQuestionEntity(sourceId);
+        QuestionBank targetBank = requireActiveBank(request.targetBankId());
+        Category category = categoryRepository.findById(request.categoryId())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "分类不存在", 404));
+        if (!targetBank.getId().equals(category.getQuestionBankId())) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "分类不属于目标题库", 422);
+        }
+        String knowledgePointId = blankToNull(request.knowledgePointId());
+        if (knowledgePointId != null) {
+            KnowledgePoint knowledgePoint = knowledgePointRepository.findById(knowledgePointId)
+                    .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "知识点不存在", 404));
+            if (!category.getId().equals(knowledgePoint.getCategoryId())) {
+                throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "知识点不属于所选分类", 422);
+            }
+        }
+        QuestionVersion latest = questionVersionRepository.findTopByQuestionIdOrderByVersionNoDesc(sourceId)
+                .orElseThrow(() -> BusinessException.of(ErrorCode.NOT_FOUND, "题目没有可复制的版本", 404));
+
+        Question copy = new Question();
+        copy.setId(IdGenerator.newId("q"));
+        copy.setQuestionBankId(targetBank.getId());
+        copy.setCategoryId(category.getId());
+        copy.setKnowledgePointId(knowledgePointId);
+        copy.setStatus("active");
+        questionRepository.save(copy);
+
+        QuestionVersionInput input = new QuestionVersionInput(
+                latest.getType(),
+                latest.getStem(),
+                JsonHelper.toMapList(latest.getOptionsJson()),
+                JsonHelper.toStringList(latest.getStandardAnswer()),
+                latest.getExplanation(),
+                latest.getDifficulty(),
+                latest.getDefaultScore()
+        );
+        QuestionVersion version = createVersionEntity(copy.getId(), 1, input);
+        questionVersionRepository.save(version);
+        auditService.log(
+                "question.copy",
+                "Question",
+                copy.getId(),
+                Map.of("sourceQuestionId", source.getId()),
+                Map.of("id", copy.getId(), "questionBankId", copy.getQuestionBankId()),
+                null
+        );
+        return questionToDto(copy);
     }
 
     public Map<String, Object> getQuestion(String id) {

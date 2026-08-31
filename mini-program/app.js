@@ -1,8 +1,8 @@
-const API_BASE = 'http://localhost:8088/api/v1'
+const { apiBase } = require('./config.js')
 
 App({
   globalData: {
-    apiBase: API_BASE,
+    apiBase,
     token: '',
     session: null,
   },
@@ -36,5 +36,23 @@ App({
 
   newIdempotencyKey() {
     return `mp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  },
+
+  requireAccess(options) {
+    const allowUnbound = !!(options && options.allowUnbound)
+    if (!this.globalData.token) {
+      wx.redirectTo({ url: '/pages/login/login' })
+      return false
+    }
+    const session = this.globalData.session || wx.getStorageSync('exam_session') || {}
+    if (session.mustChangePassword) {
+      wx.reLaunch({ url: '/pages/account/account?forceChange=1' })
+      return false
+    }
+    if (!allowUnbound && !session.miniProgramBound) {
+      wx.reLaunch({ url: '/pages/account/account?forceBind=1' })
+      return false
+    }
+    return true
   },
 })

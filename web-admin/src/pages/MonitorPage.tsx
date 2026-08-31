@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../api/client'
+import { FiveDomainStatus } from '../FiveDomainStatus'
 
 interface ExamSummary {
   id: string
   title: string
   lifecycle: string
   runStatus: string
+  resultLocked?: boolean
+  resultState?: string | null
 }
 
 interface PagedExams {
@@ -48,20 +51,6 @@ interface PagedOutageEvents {
   total: number
 }
 
-const LIFECYCLE_LABEL: Record<string, string> = {
-  draft: '草稿',
-  notStarted: '未开始',
-  openForAttempt: '开放开卷',
-  closing: '收尾中',
-  ended: '已结束',
-  cancelled: '已取消',
-}
-
-function lifecycleLabel(value?: string) {
-  if (!value) return '—'
-  return LIFECYCLE_LABEL[value] ?? value
-}
-
 export default function MonitorPage() {
   const [exams, setExams] = useState<ExamSummary[]>([])
   const [examId, setExamId] = useState('')
@@ -74,13 +63,20 @@ export default function MonitorPage() {
   const [detecting, setDetecting] = useState(false)
   const [confirmingId, setConfirmingId] = useState('')
   const [rejectingId, setRejectingId] = useState('')
+  const [pauseOpen, setPauseOpen] = useState(false)
+  const [pauseReason, setPauseReason] = useState('')
+  const [rejectTarget, setRejectTarget] = useState<OutageEvent | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const loadExams = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
       const { data } = await apiFetch<PagedExams>('/admin/exams?page=1&pageSize=50')
-      setExams(data.items)
+      const sorted = [...data.items].sort(
+        (a, b) => Number(Boolean(b.resultLocked)) - Number(Boolean(a.resultLocked)),
+      )
+      setExams(sorted)
       if (data.items.length > 0) {
         setExamId((current) => current || data.items[0].id)
       }
@@ -118,16 +114,21 @@ export default function MonitorPage() {
 
   async function handlePause() {
     if (!examId) return
-    const reason = window.prompt('请输入暂停原因（可选）') ?? undefined
+    if (!pauseReason.trim()) {
+      setError('请填写暂停原因')
+      return
+    }
     setPausing(true)
     setError('')
     setSuccess('')
     try {
       await apiFetch(`/admin/exams/${examId}/pause`, {
         method: 'POST',
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason: pauseReason.trim() }),
       })
-      setSuccess('考试已暂停')
+      setSuccess('考试已暂停。恢复只能通过故障提案确认，管理员不能强制恢复。')
+      setPauseOpen(false)
+      setPauseReason('')
       await loadExams()
       await loadMonitor(examId)
     } catch (err) {
@@ -160,7 +161,7 @@ export default function MonitorPage() {
   }
 
   async function handleConfirmProposal(event: OutageEvent) {
-    if (!window.confirm(`确认故障事件 ${event.id} 的提案 v${event.latestProposalVersion}？`)) return
+    if (!window.confirm(`确认故障事件 ${event.id} 的提案 v${event.latestProposalVersion}？确认后考试将按提案恢复运行。`)) return
     setConfirmingId(event.id)
     setError('')
     setSuccess('')
@@ -181,21 +182,26 @@ export default function MonitorPage() {
     }
   }
 
-  async function handleRejectProposal(event: OutageEvent) {
-    const reason = window.prompt('请输入驳回原因') ?? ''
-    if (!reason.trim()) return
-    setRejectingId(event.id)
+  async function handleRejectProposal() {
+    if (!rejectTarget) return
+    if (!rejectReason.trim()) {
+      setError('请填写驳回原因')
+      return
+    }
+    setRejectingId(rejectTarget.id)
     setError('')
     setSuccess('')
     try {
       await apiFetch(
-        `/admin/outage-events/${event.id}/proposals/${event.latestProposalVersion}/reject`,
+        `/admin/outage-events/${rejectTarget.id}/proposals/${rejectTarget.latestProposalVersion}/reject`,
         {
           method: 'POST',
-          body: JSON.stringify({ rejectReason: reason }),
+          body: JSON.stringify({ rejectReason: rejectReason.trim() }),
         },
       )
       setSuccess('故障提案已驳回')
+      setRejectTarget(null)
+      setRejectReason('')
       await loadMonitor(examId)
     } catch (err) {
       setError(err instanceof Error ? err.message : '驳回失败')
@@ -207,16 +213,25 @@ export default function MonitorPage() {
   const selectedExam = exams.find((exam) => exam.id === examId)
   const participation = monitor?.participation
   const results = monitor?.results
+  const resultLocked = Boolean(selectedExam?.resultLocked || monitor?.resultLocked)
+  const participationLabel = participation
+    ? `应考 ${participation.assignedCount ?? 0} · 进行中 ${participation.inProgressCount ?? 0}`
+    : null
 
   return (
     <div className="page">
       <header className="page-header">
         <h1>考试监控</h1>
-        <p className="page-desc">AD-13 参与维 / 结果维、暂停与故障检测提案</p>
+        <p className="page-desc">AD-13 五域状态、参与维 / 结果维、暂停与故障检测提案。恢复考试只能确认故障提案，没有强制 Resume。</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
       {success && <p className="form-success">{success}</p>}
+      {resultLocked && (
+        <p className="locked-banner">
+          本场结果已锁定，请取消后新建考试，不要在原地修复成绩或答案。
+        </p>
+      )}
 
       <section className="card">
         <h2>选择考试</h2>
@@ -227,7 +242,8 @@ export default function MonitorPage() {
               <option value="">请选择考试</option>
               {exams.map((exam) => (
                 <option key={exam.id} value={exam.id}>
-                  {exam.title} ({lifecycleLabel(exam.lifecycle)})
+                  {exam.resultLocked ? '【结果锁定】 ' : ''}
+                  {exam.title}
                 </option>
               ))}
             </select>
@@ -239,21 +255,15 @@ export default function MonitorPage() {
       </section>
 
       {monitor && selectedExam && (
-        <section className="card">
+        <section className="card monitor-dense">
           <h2>监控概览</h2>
-          <dl className="detail-list">
-            <dt>考试</dt>
-            <dd>{selectedExam.title}</dd>
-            <dt>生命周期</dt>
-            <dd>
-              {lifecycleLabel(monitor.lifecycle ?? selectedExam.lifecycle)}
-              {monitor.resultLocked ? ' · 结果锁定' : ''}
-            </dd>
-            <dt>运行状态</dt>
-            <dd>{monitor.runStatus ?? selectedExam.runStatus}</dd>
-            <dt>尝试总数</dt>
-            <dd>{monitor.attemptCount}</dd>
-          </dl>
+          <FiveDomainStatus
+            lifecycle={monitor.lifecycle ?? selectedExam.lifecycle}
+            runStatus={monitor.runStatus ?? selectedExam.runStatus}
+            resultLocked={resultLocked}
+            participationLabel={participationLabel}
+          />
+          <p className="page-desc">尝试总数 {monitor.attemptCount}</p>
           <h3>参与维</h3>
           <div className="stat-grid">
             <div className="stat-card">
@@ -296,11 +306,14 @@ export default function MonitorPage() {
             <button
               type="button"
               className="btn-secondary"
-              onClick={handlePause}
+              onClick={() => { setPauseOpen(true); setPauseReason(''); setError('') }}
               disabled={pausing}
             >
-              {pausing ? '暂停中…' : '暂停考试'}
+              暂停考试
             </button>
+          )}
+          {selectedExam.runStatus === 'paused' && (
+            <p className="page-desc">考试已暂停。恢复只能走下方故障提案确认，不能由管理员强制恢复。</p>
           )}
         </section>
       )}
@@ -349,9 +362,9 @@ export default function MonitorPage() {
                           type="button"
                           className="btn-text"
                           disabled={rejectingId === event.id}
-                          onClick={() => handleRejectProposal(event)}
+                          onClick={() => { setRejectTarget(event); setRejectReason(''); setError('') }}
                         >
-                          {rejectingId === event.id ? '驳回中…' : '驳回'}
+                          驳回
                         </button>
                       </>
                     )}
@@ -362,6 +375,76 @@ export default function MonitorPage() {
           </table>
         )}
       </section>
+
+      {pauseOpen && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <h2>暂停考试</h2>
+            <p className="page-desc">暂停后员工不能新开卷。恢复只能通过故障提案确认。</p>
+            <label className="field">
+              暂停原因（必填）
+              <textarea
+                rows={3}
+                value={pauseReason}
+                onChange={(e) => setPauseReason(e.target.value)}
+              />
+            </label>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setPauseOpen(false)}
+                disabled={pausing}
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void handlePause()}
+                disabled={pausing}
+              >
+                {pausing ? '暂停中…' : '确认暂停'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectTarget && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <h2>驳回故障提案</h2>
+            <p className="page-desc">事件 {rejectTarget.id} · v{rejectTarget.latestProposalVersion}</p>
+            <label className="field">
+              驳回原因（必填）
+              <textarea
+                rows={3}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
+            </label>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setRejectTarget(null)}
+                disabled={Boolean(rejectingId)}
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void handleRejectProposal()}
+                disabled={Boolean(rejectingId)}
+              >
+                {rejectingId ? '驳回中…' : '确认驳回'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

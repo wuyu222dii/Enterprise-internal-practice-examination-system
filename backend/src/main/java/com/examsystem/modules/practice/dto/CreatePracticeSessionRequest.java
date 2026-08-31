@@ -6,7 +6,8 @@ public record CreatePracticeSessionRequest(
         @NotBlank String questionBankId,
         @NotBlank String mode,
         Scope scope,
-        Integer questionCount
+        Integer questionCount,
+        Boolean restartRound
 ) {
     public record Scope(String categoryId, String knowledgePointId) {
     }

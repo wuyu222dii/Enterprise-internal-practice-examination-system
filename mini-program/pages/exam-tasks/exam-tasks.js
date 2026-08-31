@@ -1,4 +1,4 @@
-const { examStatusLine } = require('../../utils/examLabels')
+const { examDomain } = require('../../utils/examLabels')
 const app = getApp()
 
 Page({
@@ -9,8 +9,7 @@ Page({
   },
 
   onShow() {
-    if (!app.globalData.token) {
-      wx.redirectTo({ url: '/pages/login/login' })
+    if (!app.requireAccess()) {
       return
     }
     this.loadTasks()
@@ -26,7 +25,7 @@ Page({
           const tasks = res.data.data.map((t) => ({
             ...t,
             id: t.id || t.examId,
-            statusLine: examStatusLine(t),
+            domain: examDomain(t),
           }))
           this.setData({ tasks })
         } else {

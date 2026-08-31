@@ -61,6 +61,11 @@ public class ExamAdminController {
         return ApiResponse.ok(Collections.emptyMap(), metaFactory.build());
     }
 
+    @GetMapping("/{id}/description-revisions")
+    public ApiResponse<List<Map<String, Object>>> listDescriptionRevisions(@PathVariable String id) {
+        return ApiResponse.ok(examService.listDescriptionRevisions(id), metaFactory.build());
+    }
+
     @PutMapping("/{id}/wizard/basic")
     public ApiResponse<Object> wizardBasic(@PathVariable String id, @RequestBody Map<String, Object> body) {
         examService.updateWizardStep(id, "basic", body);

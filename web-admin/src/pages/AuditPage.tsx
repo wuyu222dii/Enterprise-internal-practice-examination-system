@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { apiFetch } from '../api/client'
+import { formatEnterpriseTime } from '../formatTime'
 
 interface AuditLog {
   id: string
@@ -21,6 +22,14 @@ interface PagedAuditLogs {
   pageSize: number
 }
 
+interface IntegrityReport {
+  valid: boolean
+  checkedCount: number
+  firstBrokenId: string | null
+  message: string
+  repairAllowed: boolean
+}
+
 export default function AuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [total, setTotal] = useState(0)
@@ -30,6 +39,7 @@ export default function AuditPage() {
   const [targetType, setTargetType] = useState('')
   const [targetId, setTargetId] = useState('')
   const [detailId, setDetailId] = useState('')
+  const [integrity, setIntegrity] = useState<IntegrityReport | null>(null)
 
   const load = useCallback(async (filters: { actionType: string; targetType: string; targetId: string }) => {
     setLoading(true)
@@ -42,6 +52,12 @@ export default function AuditPage() {
       const { data } = await apiFetch<PagedAuditLogs>(`/admin/audit-logs?${params.toString()}`)
       setLogs(data.items)
       setTotal(data.total)
+      try {
+        const integrityRes = await apiFetch<IntegrityReport>('/admin/audit-logs/integrity')
+        setIntegrity(integrityRes.data)
+      } catch {
+        setIntegrity(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载审计日志失败')
     } finally {
@@ -66,6 +82,16 @@ export default function AuditPage() {
       </header>
 
       {error && <p className="form-error">{error}</p>}
+      {integrity && integrity.valid && (
+        <p className="integrity-ok">哈希链完整（已校验 {integrity.checkedCount} 条）。审计日志只追加、不可改删。</p>
+      )}
+      {integrity && !integrity.valid && (
+        <p className="integrity-banner">
+          {integrity.message}
+          {integrity.firstBrokenId ? `（中断记录 ${integrity.firstBrokenId}）` : ''}
+          后台不能修好原日志。
+        </p>
+      )}
 
       <section className="card">
         <form className="inline-form" onSubmit={handleFilter}>
@@ -120,7 +146,7 @@ export default function AuditPage() {
             <tbody>
               {logs.map((log) => (
                 <tr key={log.id}>
-                  <td>{new Date(log.occurredAt).toLocaleString()}</td>
+                  <td>{formatEnterpriseTime(log.occurredAt)}</td>
                   <td>{log.actorEmployeeId ?? '—'}</td>
                   <td>{log.actionType}</td>
                   <td>{log.targetType}</td>

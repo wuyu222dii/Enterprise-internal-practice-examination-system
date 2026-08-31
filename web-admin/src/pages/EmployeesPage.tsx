@@ -276,6 +276,7 @@ export default function EmployeesPage() {
                 <th>员工号</th>
                 <th>姓名</th>
                 <th>部门</th>
+                <th>手机</th>
                 <th>状态</th>
                 <th>管理员</th>
                 <th>操作</th>
@@ -287,6 +288,7 @@ export default function EmployeesPage() {
                   <td>{emp.employeeNo}</td>
                   <td>{emp.displayName}</td>
                   <td>{emp.departmentPath}</td>
+                  <td>{emp.phoneMasked || '未登记'}</td>
                   <td>{emp.status}</td>
                   <td>{emp.isAdmin ? '是' : '否'}</td>
                   <td>
@@ -309,7 +311,7 @@ export default function EmployeesPage() {
               ))}
               {employees.length === 0 && (
                 <tr>
-                  <td colSpan={6}>暂无员工</td>
+                  <td colSpan={7}>暂无员工</td>
                 </tr>
               )}
             </tbody>

@@ -9,25 +9,55 @@
     <view class="title">{{exam.title}}</view>
     <view class="subtitle">MP-10 任务详情（小程序仅查看，正式作答请使用 Web 考试端）</view>
 
-    <view class="field">
-      <text class="label">状态</text>
-      <text>{{lifecycleText}}{{exam.runStatus === 'paused' ? ' · 已暂停' : ''}}</text>
+    <view class="domain-row" wx:if="{{domain}}">
+      <view class="domain-cell"><text class="dt">生命周期</text><text class="dd">{{domain.lifecycle}}</text></view>
+      <view class="domain-cell"><text class="dt">运行</text><text class="dd">{{domain.run}}</text></view>
+      <view class="domain-cell"><text class="dt">参与</text><text class="dd">{{domain.participation}}</text></view>
+      <view class="domain-cell"><text class="dt">尝试</text><text class="dd">{{domain.attempt}}</text></view>
+      <view class="domain-cell"><text class="dt">结果</text><text class="dd">{{domain.result}}</text></view>
     </view>
     <view class="notice" wx:if="{{statusHint}}">{{statusHint}}</view>
-    <view class="field" wx:if="{{exam.openStartAt}}">
-      <text class="label">开放时间</text>
-      <text>{{exam.openStartAt}}</text>
+    <view class="notice" wx:if="{{cancelled && exam.employeeVisibleReason}}">{{exam.employeeVisibleReason}}</view>
+
+    <view class="field" wx:if="{{exam.durationMinutes}}">
+      <text class="label">时长</text>
+      <text>{{exam.durationMinutes}} 分钟</text>
     </view>
-    <view class="field" wx:if="{{exam.stopAttemptAt}}">
-      <text class="label">截止进入</text>
-      <text>{{exam.stopAttemptAt}}</text>
+    <view class="field" wx:if="{{exam.maxAttempts}}">
+      <text class="label">次数</text>
+      <text>最多 {{exam.maxAttempts}} 次{{exam.remainingAttempts != null ? '（剩余 ' + exam.remainingAttempts + ' 次）' : ''}}</text>
+    </view>
+    <view class="field" wx:if="{{openStartText}}">
+      <text class="label">开放时间</text>
+      <text>{{openStartText}}</text>
+    </view>
+    <view class="field" wx:if="{{stopAttemptText}}">
+      <text class="label">停止开卷</text>
+      <text>{{stopAttemptText}}</text>
     </view>
     <view class="field" wx:if="{{exam.description}}">
       <text class="label">说明</text>
       <text>{{exam.description}}</text>
     </view>
 
-    <view class="notice">正式考试请在电脑 Web 考试端登录作答。小程序只提供任务查看、考试码和地址，不提供开卷入口。</view>
+    <block wx:if="{{!cancelled}}">
+      <view class="field copy-row" wx:if="{{exam.examCode}}">
+        <view>
+          <view class="label">考试码</view>
+          <view>{{exam.examCode}}</view>
+        </view>
+        <button class="copy-btn" size="mini" bindtap="onCopyCode">复制考试码</button>
+      </view>
+      <view class="field copy-row" wx:if="{{exam.portalUrl}}">
+        <view>
+          <view class="label">电脑端地址</view>
+          <view>{{exam.portalUrl}}</view>
+        </view>
+        <button class="copy-btn" size="mini" bindtap="onCopyPortal">复制地址</button>
+      </view>
+      <view class="notice">正式考试请在电脑 Web 考试端登录作答。小程序只提供任务查看、考试码和地址，不提供开卷入口。</view>
+    </block>
+    <view wx:else class="notice">本场已取消，定位与复制入口已隐藏。</view>
 
     <navigator url="/pages/exam-tasks/exam-tasks" open-type="navigateBack" class="back-link">返回任务列表</navigator>
   </view>

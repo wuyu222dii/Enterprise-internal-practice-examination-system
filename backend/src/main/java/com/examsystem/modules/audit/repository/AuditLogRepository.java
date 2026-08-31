@@ -8,6 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
+import java.util.Optional;
+
 public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
     Page<AuditLog> findAllByOrderByOccurredAtDesc(Pageable pageable);
 
@@ -24,4 +27,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
             @Param("targetId") String targetId,
             Pageable pageable
     );
+
+    Optional<AuditLog> findTopByChainSeqIsNotNullOrderByChainSeqDesc();
+
+    List<AuditLog> findByChainSeqIsNotNullOrderByChainSeqAsc();
 }

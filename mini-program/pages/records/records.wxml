@@ -43,10 +43,18 @@
     </view>
 
     <view wx:if="{{tab === 'exam'}}">
-      <view wx:for="{{examRecords}}" wx:key="attemptId" class="record-item">
+      <view
+        wx:for="{{examRecords}}"
+        wx:key="attemptId"
+        class="record-item"
+        data-id="{{item.attemptId}}"
+        data-review="{{item.canReview ? 1 : 0}}"
+        bindtap="onOpenExamReview"
+      >
         <view class="record-title">{{item.examTitle || '正式考试'}}</view>
         <view class="record-meta">{{item.lifecycleLabel}} · {{item.fact}}</view>
-        <view class="record-meta" wx:if="{{item.submittedAt}}">提交时间 {{item.submittedAt}}</view>
+        <view class="record-meta" wx:if="{{item.submittedAtText}}">提交时间 {{item.submittedAtText}}</view>
+        <view class="record-meta" wx:if="{{item.summary}}">{{item.summary}}</view>
         <view class="record-notice" wx:if="{{item.notice}}">{{item.notice}}</view>
       </view>
       <view wx:if="{{!loading && examRecords.length === 0}}" class="stub">暂无正式考试记录</view>

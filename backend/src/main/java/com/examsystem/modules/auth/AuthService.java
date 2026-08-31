@@ -132,6 +132,9 @@ public class AuthService {
     }
 
     public void sendSms(SmsSendRequest request) {
+        if ("bindMiniProgram".equals(request.purpose()) || "unbindMiniProgram".equals(request.purpose())) {
+            assertArchivePhoneMatches(request.phone());
+        }
         smsVerificationService.sendCode(request.phone(), request.purpose());
     }
 
@@ -283,7 +286,30 @@ public class AuthService {
                 employee.isAdmin(),
                 employee.isHasOutageDisposition(),
                 employee.isMustChangePassword(),
-                employee.getMiniProgramOpenId() != null && !employee.getMiniProgramOpenId().isBlank()
+                employee.getMiniProgramOpenId() != null && !employee.getMiniProgramOpenId().isBlank(),
+                maskPhone(employee.getPhone())
         );
+    }
+
+    private void assertArchivePhoneMatches(String phone) {
+        EmployeePrincipal principal = SecurityUtils.getCurrentPrincipal();
+        if (principal == null) {
+            throw BusinessException.of(ErrorCode.AUTH_SESSION_EXPIRED, "会话已过期", 401);
+        }
+        Employee employee = employeeRepository.findById(principal.getEmployeeId())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.AUTH_SESSION_EXPIRED, "会话已过期", 401));
+        if (employee.getPhone() == null || employee.getPhone().isBlank()) {
+            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "档案未登记手机号，请联系管理员维护后再绑定", 422);
+        }
+        if (!employee.getPhone().equals(phone)) {
+            throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "手机号不匹配", 401);
+        }
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() < 7) {
+            return null;
+        }
+        return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
     }
 }

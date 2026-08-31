@@ -554,6 +554,31 @@ input:focus {
 
 .filter-bar {
   padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.overlay-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.overlay-actions .btn-primary,
+.overlay-actions .btn-secondary {
+  flex: 1;
+}
+
+.overlay-busy {
+  pointer-events: all;
 }
 
 .filter-label {
@@ -634,3 +659,53 @@ input:focus {
   margin: 8px 0 0;
   font-size: 13px;
 }
+
+.compat-banner {
+  background: #fff7ed;
+  border-bottom: 1px solid #fdba74;
+  color: #9a3412;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+
+.login-card .compat-banner {
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+  margin: 0 0 16px;
+}
+
+.compat-banner.risk {
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+  margin: 8px 0 12px;
+}
+
+.domain-status {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(64px, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.domain-status dt {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.domain-status dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .domain-status {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

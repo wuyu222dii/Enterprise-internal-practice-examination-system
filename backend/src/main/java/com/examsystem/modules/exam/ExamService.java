@@ -15,6 +15,7 @@ import com.examsystem.modules.exam.entity.ExamAssignment;
 import com.examsystem.modules.exam.entity.ExamAttempt;
 import com.examsystem.modules.exam.entity.ExamPaperItem;
 import com.examsystem.modules.exam.entity.ExamPublishedVersion;
+import com.examsystem.modules.exam.entity.ExamDescriptionRevision;
 import com.examsystem.modules.exam.entity.ExamResult;
 import com.examsystem.modules.exam.entity.ExamRuleLine;
 import com.examsystem.modules.exam.repository.ExamAnswerRepository;
@@ -22,6 +23,7 @@ import com.examsystem.modules.exam.repository.ExamAssignmentRepository;
 import com.examsystem.modules.exam.repository.ExamAttemptRepository;
 import com.examsystem.modules.exam.repository.ExamPaperItemRepository;
 import com.examsystem.modules.exam.repository.ExamPublishedVersionRepository;
+import com.examsystem.modules.exam.repository.ExamDescriptionRevisionRepository;
 import com.examsystem.modules.exam.repository.ExamRepository;
 import com.examsystem.modules.exam.repository.ExamResultRepository;
 import com.examsystem.modules.exam.repository.ExamRuleLineRepository;
@@ -33,6 +35,7 @@ import com.examsystem.modules.question.QuestionService;
 import com.examsystem.modules.question.entity.QuestionVersion;
 import com.examsystem.modules.scoring.ScoringService;
 import com.examsystem.security.SecurityUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -58,6 +61,7 @@ import java.util.stream.Collectors;
 public class ExamService {
 
     private static final int BATCH_SIZE = 500;
+    private static final String EMPLOYEE_EXAM_NOT_FOUND = "未找到可参加的考试";
 
     private final ExamRepository examRepository;
     private final ExamPublishedVersionRepository publishedVersionRepository;
@@ -73,6 +77,8 @@ public class ExamService {
     private final ScoringService scoringService;
     private final AuditService auditService;
     private final ExamLifecycleSupport lifecycleSupport;
+    private final ExamDescriptionRevisionRepository descriptionRevisionRepository;
+    private final String portalBaseUrl;
 
     public ExamService(
             ExamRepository examRepository,
@@ -88,7 +94,9 @@ public class ExamService {
             QuestionService questionService,
             ScoringService scoringService,
             AuditService auditService,
-            ExamLifecycleSupport lifecycleSupport
+            ExamLifecycleSupport lifecycleSupport,
+            ExamDescriptionRevisionRepository descriptionRevisionRepository,
+            @Value("${exam.portal.base-url:http://localhost:5174}") String portalBaseUrl
     ) {
         this.examRepository = examRepository;
         this.publishedVersionRepository = publishedVersionRepository;
@@ -104,6 +112,10 @@ public class ExamService {
         this.scoringService = scoringService;
         this.auditService = auditService;
         this.lifecycleSupport = lifecycleSupport;
+        this.descriptionRevisionRepository = descriptionRevisionRepository;
+        this.portalBaseUrl = portalBaseUrl.endsWith("/")
+                ? portalBaseUrl.substring(0, portalBaseUrl.length() - 1)
+                : portalBaseUrl;
     }
 
     public PageDto<Map<String, Object>> listAdminExams(int page, int pageSize) {
@@ -136,13 +148,69 @@ public class ExamService {
     public void patchExam(String id, Map<String, Object> body) {
         SecurityUtils.requireAdmin();
         Exam exam = getExam(id);
+        boolean published = exam.getPublishedVersionId() != null && !"draft".equals(exam.getLifecycle());
+        if (published) {
+            for (String key : body.keySet()) {
+                if (!"description".equals(key)) {
+                    throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "已发布考试仅允许修订考试说明", 422);
+                }
+            }
+            if (!body.containsKey("description")) {
+                return;
+            }
+            String next = body.get("description") != null ? String.valueOf(body.get("description")) : null;
+            String previous = exam.getDescription();
+            if (Objects.equals(previous, next)) {
+                return;
+            }
+            if (!descriptionRevisionRepository.existsByExamId(id) && previous != null) {
+                saveDescriptionRevision(id, previous);
+            }
+            exam.setDescription(next);
+            examRepository.save(exam);
+            saveDescriptionRevision(id, next);
+            auditService.log(
+                    "exam.description.revise",
+                    "Exam",
+                    id,
+                    Map.of("description", previous == null ? "" : previous),
+                    Map.of("description", next == null ? "" : next),
+                    null
+            );
+            return;
+        }
         if (body.containsKey("title")) {
             exam.setTitle(String.valueOf(body.get("title")));
         }
         if (body.containsKey("description")) {
-            exam.setDescription(String.valueOf(body.get("description")));
+            exam.setDescription(body.get("description") != null ? String.valueOf(body.get("description")) : null);
         }
         examRepository.save(exam);
+    }
+
+    public List<Map<String, Object>> listDescriptionRevisions(String id) {
+        SecurityUtils.requireAdmin();
+        getExam(id);
+        return descriptionRevisionRepository.findByExamIdOrderByCreatedAtDesc(id).stream()
+                .map(revision -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("id", revision.getId());
+                    row.put("body", revision.getBody());
+                    row.put("actorEmployeeId", revision.getActorEmployeeId());
+                    row.put("createdAt", revision.getCreatedAt());
+                    return row;
+                })
+                .toList();
+    }
+
+    private void saveDescriptionRevision(String examId, String body) {
+        ExamDescriptionRevision revision = new ExamDescriptionRevision();
+        revision.setId(IdGenerator.newId("edr"));
+        revision.setExamId(examId);
+        revision.setBody(body);
+        revision.setActorEmployeeId(SecurityUtils.getCurrentEmployeeId());
+        revision.setCreatedAt(Instant.now());
+        descriptionRevisionRepository.save(revision);
     }
 
     @Transactional
@@ -298,6 +366,9 @@ public class ExamService {
 
         exam.setPublishedVersionId(version.getId());
         exam.setLifecycle("openForAttempt");
+        if (exam.getExamCode() == null || exam.getExamCode().isBlank()) {
+            exam.setExamCode(allocateExamCode());
+        }
         if (exam.getOpenStartAt() == null) {
             exam.setOpenStartAt(Instant.now());
         }
@@ -431,12 +502,26 @@ public class ExamService {
         Set<String> examIds = publishedVersionRepository.findAllById(versionIds).stream()
                 .map(ExamPublishedVersion::getExamId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        return examRepository.findAllById(examIds).stream().map(this::examToDto).toList();
+        return examRepository.findAllById(examIds).stream()
+                .map(exam -> employeeExamToDto(exam, employeeId))
+                .toList();
     }
 
     public Map<String, Object> getExamTaskDetail(String id) {
-        Exam exam = getExam(id);
-        return examToDto(exam);
+        String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
+        Exam exam = requireAssignedEmployeeExam(id, employeeId);
+        return employeeExamToDto(exam, employeeId);
+    }
+
+    public Map<String, Object> locateExamByCode(String examCode) {
+        String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
+        if (examCode == null || examCode.isBlank()) {
+            throw examNotFoundForEmployee();
+        }
+        Exam exam = examRepository.findByExamCode(examCode.trim().toUpperCase())
+                .orElseThrow(this::examNotFoundForEmployee);
+        requireAssignedEmployeeExam(exam.getId(), employeeId);
+        return employeeExamToDto(exam, employeeId);
     }
 
     public PageDto<Map<String, Object>> listExamRecords(int page, int pageSize) {
@@ -448,8 +533,25 @@ public class ExamService {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<String, Exam> exams = examRepository.findAllById(examIds).stream()
                 .collect(Collectors.toMap(Exam::getId, exam -> exam));
+        Set<String> versionIds = result.getContent().stream()
+                .map(ExamAttempt::getPublishedVersionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, ExamPublishedVersion> versions = publishedVersionRepository.findAllById(versionIds).stream()
+                .collect(Collectors.toMap(ExamPublishedVersion::getId, version -> version));
+        Set<String> attemptIds = result.getContent().stream()
+                .map(ExamAttempt::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, ExamResult> results = resultRepository.findByExamAttemptIdIn(attemptIds).stream()
+                .collect(Collectors.toMap(ExamResult::getExamAttemptId, examResult -> examResult));
+        Instant now = Instant.now();
         return new PageDto<>(result.getContent().stream()
-                .map(attempt -> attemptSummaryToDto(attempt, exams.get(attempt.getExamId())))
+                .map(attempt -> attemptSummaryToDto(
+                        attempt,
+                        exams.get(attempt.getExamId()),
+                        versions.get(attempt.getPublishedVersionId()),
+                        results.get(attempt.getId()),
+                        now))
                 .toList(),
                 result.getTotalElements(), page, pageSize);
     }
@@ -516,6 +618,7 @@ public class ExamService {
 
     public Map<String, Object> getActiveAttemptForExam(String examId) {
         String employeeId = SecurityUtils.requirePrincipal().getEmployeeId();
+        requireAssignedEmployeeExam(examId, employeeId);
         List<String> activeStatuses = List.of("inProgress", "submitting");
         return attemptRepository.findByExamIdAndEmployeeIdAndAttemptStatusIn(examId, employeeId, activeStatuses)
                 .map(this::buildStartResponse)
@@ -702,6 +805,9 @@ public class ExamService {
         dto.put("resultLocked", resultLocked);
         dto.put("submitted", submitted);
         dto.put("submittedAt", attempt.getSubmittedAt());
+        int maxAttempts = intValue(versionConfig.get("maxAttempts"), 1);
+        long used = attemptRepository.countByExamIdAndEmployeeId(exam.getId(), attempt.getEmployeeId());
+        dto.put("remainingAttempts", Math.max(0, maxAttempts - (int) used));
         dto.put("visibility", Map.of(
                 "summaryVisible", summaryVisible,
                 "passingScoreVisible", passingScoreVisible,
@@ -1150,18 +1256,95 @@ public class ExamService {
         dto.put("openStartAt", exam.getOpenStartAt());
         dto.put("stopAttemptAt", exam.getStopAttemptAt());
         dto.put("publishedVersionId", exam.getPublishedVersionId());
+        dto.put("examCode", exam.getExamCode());
+        dto.put("portalUrl", exam.getId() != null ? portalBaseUrl + "/exams/" + exam.getId() : null);
         dto.put("resultLocked", exam.isResultLocked());
         dto.put("resultState", lifecycleSupport.resultState(exam, now));
         dto.put("endBlockReason", "closing".equals(lifecycle) ? lifecycleSupport.wrappingBlockReason(exam, now) : null);
         dto.put("closingRemainingSeconds", lifecycleSupport.closingRemainingSeconds(exam, now));
+        attachRuleSummary(dto, exam);
         if ("cancelled".equals(lifecycle)) {
             dto.put("employeeVisibleReason", exam.getEmployeeVisibleReason());
         }
         return dto;
     }
 
-    private Map<String, Object> attemptSummaryToDto(ExamAttempt attempt, Exam exam) {
-        Instant now = Instant.now();
+    private Map<String, Object> employeeExamToDto(Exam exam, String employeeId) {
+        Map<String, Object> dto = examToDto(exam);
+        int maxAttempts = intValue(dto.get("maxAttempts"), 1);
+        long used = attemptRepository.countByExamIdAndEmployeeId(exam.getId(), employeeId);
+        int remaining = Math.max(0, maxAttempts - (int) used);
+        dto.put("usedAttempts", used);
+        dto.put("remainingAttempts", remaining);
+        boolean inProgress = attemptRepository.findByExamIdAndEmployeeIdAndAttemptStatusIn(
+                exam.getId(), employeeId, List.of("inProgress", "submitting")).isPresent();
+        String lifecycle = String.valueOf(dto.get("lifecycle"));
+        String participation;
+        if ("cancelled".equals(lifecycle)) {
+            participation = "无需参加";
+        } else if (inProgress) {
+            participation = "进行中";
+        } else if (used == 0) {
+            participation = "未开始";
+        } else if (remaining == 0) {
+            participation = "已完成";
+        } else {
+            participation = "可再考";
+        }
+        dto.put("participationStatus", participation);
+        dto.put("participationLabel", participation);
+        return dto;
+    }
+
+    private void attachRuleSummary(Map<String, Object> dto, Exam exam) {
+        if (exam.getPublishedVersionId() == null) {
+            return;
+        }
+        publishedVersionRepository.findById(exam.getPublishedVersionId()).ifPresent(version -> {
+            Map<String, Object> config = JsonHelper.toMap(version.getConfigJson());
+            int durationMinutes = intValue(config.get("durationMinutes"), 60);
+            int maxAttempts = intValue(config.get("maxAttempts"), 1);
+            dto.put("durationMinutes", durationMinutes);
+            dto.put("maxAttempts", maxAttempts);
+            Map<String, Object> ruleSummary = new LinkedHashMap<>();
+            ruleSummary.put("durationMinutes", durationMinutes);
+            ruleSummary.put("maxAttempts", maxAttempts);
+            ruleSummary.put("stopAttemptAt", exam.getStopAttemptAt());
+            dto.put("ruleSummary", ruleSummary);
+        });
+    }
+
+    private Exam requireAssignedEmployeeExam(String examId, String employeeId) {
+        Exam exam = examRepository.findById(examId).orElseThrow(this::examNotFoundForEmployee);
+        if (exam.getPublishedVersionId() == null) {
+            throw examNotFoundForEmployee();
+        }
+        assignmentRepository.findByPublishedVersionIdAndEmployeeId(exam.getPublishedVersionId(), employeeId)
+                .orElseThrow(this::examNotFoundForEmployee);
+        return exam;
+    }
+
+    private BusinessException examNotFoundForEmployee() {
+        return BusinessException.of(ErrorCode.NOT_FOUND, EMPLOYEE_EXAM_NOT_FOUND, 404);
+    }
+
+    private String allocateExamCode() {
+        for (int i = 0; i < 32; i++) {
+            String code = IdGenerator.examCode();
+            if (!examRepository.existsByExamCode(code)) {
+                return code;
+            }
+        }
+        throw BusinessException.of(ErrorCode.INTERNAL_ERROR, "无法生成唯一考试码", 500);
+    }
+
+    private Map<String, Object> attemptSummaryToDto(
+            ExamAttempt attempt,
+            Exam exam,
+            ExamPublishedVersion version,
+            ExamResult result,
+            Instant now
+    ) {
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attempt.getId());
         dto.put("examId", attempt.getExamId());
@@ -1169,14 +1352,45 @@ public class ExamService {
         dto.put("attemptNumber", attempt.getAttemptNumber());
         dto.put("startedAt", attempt.getStartedAt());
         dto.put("submittedAt", attempt.getSubmittedAt());
+        boolean submitted = "completed".equals(attempt.getAttemptStatus())
+                || "voided".equals(attempt.getAttemptStatus());
+        dto.put("submitted", submitted);
         if (exam != null) {
+            String lifecycle = lifecycleSupport.resolveLifecycle(exam, now);
+            String resultState = lifecycleSupport.resultState(exam, now);
             dto.put("examTitle", exam.getTitle());
-            dto.put("lifecycle", lifecycleSupport.resolveLifecycle(exam, now));
+            dto.put("examCode", exam.getExamCode());
+            dto.put("lifecycle", lifecycle);
             dto.put("runStatus", exam.getRunStatus());
             dto.put("resultLocked", exam.isResultLocked());
-            dto.put("resultState", lifecycleSupport.resultState(exam, now));
-            if ("cancelled".equals(lifecycleSupport.resolveLifecycle(exam, now))) {
+            dto.put("resultState", resultState);
+            if ("cancelled".equals(lifecycle)) {
                 dto.put("employeeVisibleReason", exam.getEmployeeVisibleReason());
+            }
+            Map<String, Object> versionConfig = version != null ? JsonHelper.toMap(version.getConfigJson()) : Map.of();
+            Map<String, Object> resultPolicy = versionConfig.containsKey("resultPolicy")
+                    ? section(versionConfig, "resultPolicy")
+                    : Map.of();
+            boolean hideOfficial = !"available".equals(resultState);
+            boolean summaryVisible = !hideOfficial && submitted;
+            boolean perItemReviewAllowed = summaryVisible && boolValue(resultPolicy.get("perItemReviewAllowed"), true);
+            boolean passingScoreVisible = summaryVisible && boolValue(resultPolicy.get("passingScoreVisible"), false);
+            boolean passConclusionVisible = summaryVisible && boolValue(resultPolicy.get("passConclusionVisible"), false);
+            dto.put("visibility", Map.of(
+                    "summaryVisible", summaryVisible,
+                    "passingScoreVisible", passingScoreVisible,
+                    "passConclusionVisible", passConclusionVisible,
+                    "perItemReviewAllowed", perItemReviewAllowed
+            ));
+            if (result != null && summaryVisible) {
+                dto.put("totalScore", result.getTotalScore());
+                dto.put("maxScore", result.getMaxScore());
+                if (passConclusionVisible) {
+                    dto.put("passed", result.getPassed());
+                }
+                if (passingScoreVisible) {
+                    dto.put("passingScore", decimalValue(versionConfig.get("passingScore"), BigDecimal.ZERO));
+                }
             }
         }
         return dto;

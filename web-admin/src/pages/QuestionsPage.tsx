@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch } from '../api/client'
+import { formatEnterpriseTime } from '../formatTime'
 
 interface QuestionDto {
   id: string
@@ -39,6 +40,12 @@ interface PagedQuestions {
   total: number
   page: number
   pageSize: number
+}
+
+interface BankDto {
+  id: string
+  name: string
+  status: string
 }
 
 interface OptionRow {
@@ -98,6 +105,12 @@ export default function QuestionsPage() {
   const [historyQuestionId, setHistoryQuestionId] = useState('')
   const [historyVersions, setHistoryVersions] = useState<QuestionVersionDto[]>([])
   const [busyQuestionId, setBusyQuestionId] = useState('')
+  const [copyQuestion, setCopyQuestion] = useState<QuestionDto | null>(null)
+  const [banks, setBanks] = useState<BankDto[]>([])
+  const [copyBankId, setCopyBankId] = useState('')
+  const [copyCategories, setCopyCategories] = useState<CategoryDto[]>([])
+  const [copyCategoryId, setCopyCategoryId] = useState('')
+  const [copying, setCopying] = useState(false)
   const categoryIdRef = useRef('')
 
   const isEssay = type === 'essay'
@@ -336,6 +349,66 @@ export default function QuestionsPage() {
     }
   }
 
+  async function openCopy(question: QuestionDto) {
+    setError('')
+    setCopyQuestion(question)
+    try {
+      const { data } = await apiFetch<BankDto[]>('/question-banks')
+      const activeBanks = data.filter((bank) => bank.status === 'active')
+      setBanks(activeBanks)
+      const nextBankId = bankId && activeBanks.some((b) => b.id === bankId)
+        ? bankId
+        : activeBanks[0]?.id || ''
+      setCopyBankId(nextBankId)
+      if (nextBankId) {
+        const cats = await apiFetch<CategoryDto[]>(`/question-banks/${nextBankId}/categories`)
+        setCopyCategories(cats.data)
+        setCopyCategoryId(
+          nextBankId === bankId ? question.categoryId : cats.data[0]?.id || '',
+        )
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载题库失败')
+      setCopyQuestion(null)
+    }
+  }
+
+  async function handleCopyBankChange(nextBankId: string) {
+    setCopyBankId(nextBankId)
+    if (!nextBankId) {
+      setCopyCategories([])
+      setCopyCategoryId('')
+      return
+    }
+    const cats = await apiFetch<CategoryDto[]>(`/question-banks/${nextBankId}/categories`)
+    setCopyCategories(cats.data)
+    setCopyCategoryId(cats.data[0]?.id || '')
+  }
+
+  async function submitCopy() {
+    if (!copyQuestion || !copyBankId || !copyCategoryId) {
+      setError('请选择启用的目标题库和分类')
+      return
+    }
+    setCopying(true)
+    setError('')
+    try {
+      await apiFetch(`/questions/${copyQuestion.id}/copy`, {
+        method: 'POST',
+        body: JSON.stringify({
+          targetBankId: copyBankId,
+          categoryId: copyCategoryId,
+        }),
+      })
+      setCopyQuestion(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '复制失败')
+    } finally {
+      setCopying(false)
+    }
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -567,6 +640,9 @@ export default function QuestionsPage() {
                       <button type="button" className="btn-text" onClick={() => void startRevise(q)}>
                         修订新版本
                       </button>
+                      <button type="button" className="btn-text" onClick={() => void openCopy(q)}>
+                        复制为新题
+                      </button>
                       <button type="button" className="btn-text" onClick={() => void showHistory(q.id)}>
                         版本历史
                       </button>
@@ -608,7 +684,7 @@ export default function QuestionsPage() {
                     <td>v{item.versionNo ?? '—'}</td>
                     <td>{TYPE_LABELS[item.type] ?? item.type}</td>
                     <td className="stem-cell">{item.stem}</td>
-                    <td>{item.createdAt ? new Date(item.createdAt).toLocaleString() : '—'}</td>
+                    <td>{formatEnterpriseTime(item.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -619,6 +695,59 @@ export default function QuestionsPage() {
           </div>
         )}
       </section>
+
+      {copyQuestion && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <h2>复制为新题</h2>
+            <p className="page-desc">将生成独立逻辑题目。停用原题需另行确认，不会与复制合并。</p>
+            <label className="field">
+              目标题库（仅启用）
+              <select
+                value={copyBankId}
+                onChange={(e) => void handleCopyBankChange(e.target.value)}
+              >
+                {banks.map((bank) => (
+                  <option key={bank.id} value={bank.id}>
+                    {bank.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              目标分类
+              <select
+                value={copyCategoryId}
+                onChange={(e) => setCopyCategoryId(e.target.value)}
+              >
+                {copyCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setCopyQuestion(null)}
+                disabled={copying}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void submitCopy()}
+                disabled={copying || !copyBankId || !copyCategoryId}
+              >
+                {copying ? '复制中…' : '确认复制'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -23,6 +23,7 @@ export default function ImportTasksPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actingId, setActingId] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,11 +43,38 @@ export default function ImportTasksPage() {
     load()
   }, [load])
 
+  async function handleCancel(task: ImportTask) {
+    if (!window.confirm(`取消导入任务 ${task.id}？取消后不可确认导入。`)) return
+    setActingId(task.id)
+    setError('')
+    try {
+      await apiFetch(`/import/tasks/${task.id}/cancel`, { method: 'POST' })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '取消失败')
+    } finally {
+      setActingId('')
+    }
+  }
+
+  async function handleRevalidate(task: ImportTask) {
+    setActingId(task.id)
+    setError('')
+    try {
+      await apiFetch(`/import/tasks/${task.id}/revalidate`, { method: 'POST' })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '重新校验失败')
+    } finally {
+      setActingId('')
+    }
+  }
+
   return (
     <div className="page">
       <header className="page-header">
         <h1>导入任务</h1>
-        <p className="page-desc">题目导入任务列表（共 {total} 条）</p>
+        <p className="page-desc">题目导入任务列表（共 {total} 条）。可取消未完成任务，过期任务可重新校验。</p>
       </header>
 
       {error && <p className="form-error">{error}</p>}
@@ -86,8 +114,34 @@ export default function ImportTasksPage() {
                   <td>{task.errorCount}</td>
                   <td>{task.createdAt ? new Date(task.createdAt).toLocaleString() : '—'}</td>
                   <td>
-                    {task.status === 'preview_ready' && (
-                      <Link to={`/import?taskId=${task.id}`}>继续导入</Link>
+                    {(task.status === 'preview_ready' || task.status === 'expired') && (
+                      <>
+                        <Link to={`/import?taskId=${task.id}`}>继续导入</Link>
+                        {' · '}
+                      </>
+                    )}
+                    {task.status === 'expired' && (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-text"
+                          disabled={actingId === task.id}
+                          onClick={() => void handleRevalidate(task)}
+                        >
+                          {actingId === task.id ? '校验中…' : '重新校验'}
+                        </button>
+                        {' · '}
+                      </>
+                    )}
+                    {task.status !== 'completed' && task.status !== 'cancelled' && (
+                      <button
+                        type="button"
+                        className="btn-text"
+                        disabled={actingId === task.id}
+                        onClick={() => void handleCancel(task)}
+                      >
+                        {actingId === task.id ? '处理中…' : '取消'}
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -98,5 +152,4 @@ export default function ImportTasksPage() {
       </section>
     </div>
   )
-
 }

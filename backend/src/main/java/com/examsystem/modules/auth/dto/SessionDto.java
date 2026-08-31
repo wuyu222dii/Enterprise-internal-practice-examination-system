@@ -10,6 +10,7 @@ public record SessionDto(
         boolean isAdmin,
         boolean hasOutageDisposition,
         boolean mustChangePassword,
-        boolean miniProgramBound
+        boolean miniProgramBound,
+        String phoneMasked
 ) {
 }
