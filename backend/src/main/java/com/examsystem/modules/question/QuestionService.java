@@ -195,6 +195,29 @@ public class QuestionService {
     }
 
     @Transactional
+    public int createQuestions(String bankId, List<CreateQuestionRequest> requests) {
+        SecurityUtils.requireAdmin();
+        getBank(bankId);
+        if (requests == null || requests.isEmpty()) {
+            return 0;
+        }
+        List<Question> questions = new ArrayList<>(requests.size());
+        List<QuestionVersion> versions = new ArrayList<>(requests.size());
+        for (CreateQuestionRequest request : requests) {
+            Question question = new Question();
+            question.setId(IdGenerator.newId("q"));
+            question.setQuestionBankId(bankId);
+            question.setCategoryId(request.categoryId());
+            question.setKnowledgePointId(request.knowledgePointId());
+            questions.add(question);
+            versions.add(createVersionEntity(question.getId(), 1, request.version()));
+        }
+        questionRepository.saveAll(questions);
+        questionVersionRepository.saveAll(versions);
+        return questions.size();
+    }
+
+    @Transactional
     public Map<String, Object> copyQuestion(String sourceId, CopyQuestionRequest request) {
         SecurityUtils.requireAdmin();
         Question source = getQuestionEntity(sourceId);

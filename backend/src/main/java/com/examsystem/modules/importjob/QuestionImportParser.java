@@ -55,7 +55,7 @@ final class QuestionImportParser {
     static ParseResult parse(InputStream inputStream) {
         try (Workbook workbook = new XSSFWorkbook(inputStream)) {
             if (workbook.getNumberOfSheets() == 0) {
-                throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 文件为空", 422);
+                throw BusinessException.of(ErrorCode.IMP_FILE_INVALID, "Excel 文件为空", 422);
             }
             List<Map<String, Object>> validRows = new ArrayList<>();
             List<Map<String, Object>> errorRows = new ArrayList<>();
@@ -85,7 +85,7 @@ final class QuestionImportParser {
                     }
                     dataRowCount++;
                     if (dataRowCount > MAX_ROWS) {
-                        throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "超过 1000 行数据限制", 422);
+                        throw BusinessException.of(ErrorCode.IMP_ROW_LIMIT_EXCEEDED, "超过 1000 行数据限制", 422);
                     }
                     int rowNum = i + 1;
                     ParsedRow parsed = switch (format) {
@@ -103,11 +103,11 @@ final class QuestionImportParser {
             }
 
             if (recognizedSheets == 0) {
-                throw BusinessException.of(ErrorCode.VALIDATION_ERROR,
+                throw BusinessException.of(ErrorCode.IMP_FILE_INVALID,
                         "表头不正确。请使用系统模板，或历史题库模板（一级科目、题型、题目内容、正确答案）", 422);
             }
             if (validRows.isEmpty() && errorRows.isEmpty()) {
-                throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 没有可导入的题目行", 422);
+                throw BusinessException.of(ErrorCode.IMP_FILE_INVALID, "Excel 没有可导入的题目行", 422);
             }
 
             Map<String, Object> preview = new LinkedHashMap<>();
@@ -117,7 +117,7 @@ final class QuestionImportParser {
         } catch (BusinessException e) {
             throw e;
         } catch (IOException e) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "Excel 解析失败", 422);
+            throw BusinessException.of(ErrorCode.IMP_FILE_INVALID, "Excel 解析失败", 422);
         }
     }
 
@@ -179,7 +179,7 @@ final class QuestionImportParser {
 
         String type = mapType(typeLabel);
         if (type == null) {
-            errors.add("题型无效，应为 判断 / 单选 / 多选");
+            errors.add("题型无效，应为 判断 / 单选 / 多选 / 解答题");
         }
         String difficulty = mapDifficulty(difficultyLabel);
         if (difficulty == null) {
@@ -713,8 +713,30 @@ final class QuestionImportParser {
         Map<String, Object> errorRow = new LinkedHashMap<>();
         errorRow.put("sheetName", sheetName);
         errorRow.put("rowNum", rowNum);
+        errorRow.put("errorType", "validation");
+        errorRow.put("field", inferField(errors));
         errorRow.put("message", String.join("; ", errors));
         return errorRow;
+    }
+
+    private static String inferField(List<String> errors) {
+        String joined = String.join(";", errors);
+        if (joined.contains("题干") || joined.contains("题目内容") || joined.contains("stem")) {
+            return "stem";
+        }
+        if (joined.contains("题型") || joined.contains("type")) {
+            return "type";
+        }
+        if (joined.contains("答案") || joined.contains("standardAnswer")) {
+            return "standardAnswer";
+        }
+        if (joined.contains("选项") || joined.contains("options")) {
+            return "options";
+        }
+        if (joined.contains("分类") || joined.contains("科目")) {
+            return "category";
+        }
+        return "row";
     }
 
     private static Map<String, Object> validRecord(String sheetName, int rowNum, ParsedRow parsed) {

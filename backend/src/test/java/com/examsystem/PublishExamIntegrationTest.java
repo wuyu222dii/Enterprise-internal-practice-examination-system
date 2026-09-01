@@ -231,14 +231,23 @@ class PublishExamIntegrationTest {
                 .andExpect(status().isOk());
 
         String attemptId = TestExamHelper.startAttempt(mockMvc, objectMapper, examToken, examId);
+        JsonNode banks = objectMapper.readTree(mockMvc.perform(get("/question-banks")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andReturn().getResponse().getContentAsString()).path("data");
+        int activeCount = 10;
+        for (JsonNode bank : banks) {
+            if ("qb_demo".equals(bank.path("id").asText())) {
+                activeCount = bank.path("activeQuestionCount").asInt(10);
+            }
+        }
         MvcResult paper = mockMvc.perform(get("/attempts/" + attemptId + "/paper")
                         .header("Authorization", "Bearer " + examToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items.length()").value(10))
+                .andExpect(jsonPath("$.data.items.length()").value(activeCount))
                 .andReturn();
         JsonNode items = objectMapper.readTree(paper.getResponse().getContentAsString())
                 .path("data").path("items");
-        assertThat(items).hasSize(10);
+        assertThat(items).hasSize(activeCount);
         java.util.Set<String> stems = new java.util.HashSet<>();
         items.forEach(item -> stems.add(item.path("stem").asText()));
         assertThat(stems).anyMatch(stem -> stem.contains("演示题 1"));

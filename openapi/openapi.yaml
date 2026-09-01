@@ -836,6 +836,14 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - name: questionBankId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
       responses:
         '200':
           $ref: '#/components/responses/SuccessEmpty'
@@ -921,6 +929,11 @@ paths:
                 confirmPendingHierarchy:
                   type: boolean
                   default: true
+                hierarchyConfirm:
+                  type: object
+                  properties:
+                    confirmPendingHierarchy:
+                      type: boolean
       responses:
         '200':
           $ref: '#/components/responses/SuccessEmpty'

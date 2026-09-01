@@ -2,6 +2,7 @@ package com.examsystem.modules.importjob;
 
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
+import com.examsystem.common.ExcelCellHelper;
 import com.examsystem.common.IdGenerator;
 import com.examsystem.common.JsonHelper;
 import com.examsystem.common.PageDto;
@@ -12,12 +13,14 @@ import com.examsystem.modules.importjob.repository.ImportTaskRepository;
 import com.examsystem.modules.question.QuestionService;
 import com.examsystem.modules.question.dto.CreateQuestionRequest;
 import com.examsystem.modules.question.dto.QuestionVersionInput;
+import com.examsystem.modules.question.entity.QuestionVersion;
 import com.examsystem.security.SecurityUtils;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -51,15 +55,17 @@ public class ImportService {
             "必填，一级目录。",
             "二级目录。没有可以为空,不能跨级录入",
             "三级目录。没有可以为空,不能跨级录入",
-            "必填，只能填写“判断、单选、多选”其中之一，不能有空格",
+            "必填，只能填写“判断、单选、多选、解答题”其中之一，不能有空格",
             "必填，只能填写“易、中、难”或“简单、一般、困难”",
-            "必填。单选/多选把题干和选项写在同一格，题干与选项、选项之间必须换行（Alt+Enter）；判断题只写题干",
-            "必填。单选填 A；多选填 AC 或 A,C；判断填 对/错 或 正确/错误",
+            "必填。单选/多选把题干和选项写在同一格，题干与选项、选项之间必须换行（Alt+Enter）；判断题只写题干；解答题只写题干，正确答案写参考答案",
+            "必填。单选填 A；多选填 AC 或 A,C；判断填 对/错 或 正确/错误；解答题填参考答案",
             "选填，选项个数，用于校验",
             "选填，初培、复审，可同时填写“初培、复审”"
     };
 
     private static final int CONFIRM_TTL_DAYS = 30;
+    private static final Set<String> CANCELLABLE = Set.of("preview_ready", "needs_revalidation");
+    private static final Set<String> REVALIDATABLE = Set.of("preview_ready", "needs_revalidation", "expired");
 
     private final ImportTaskRepository importTaskRepository;
     private final QuestionService questionService;
@@ -101,6 +107,10 @@ public class ImportService {
             writeTemplateExample(sheet, 4, "企业主要负责人", "一般行业", "", "判断", "易",
                     "生产经营单位必须依法参加工伤保险，为从业人员缴纳保险费。",
                     "对", "2", "初培、复审");
+            writeTemplateExample(sheet, 5, "企业主要负责人", "一般行业", "", "解答题", "中",
+                    "简述生产经营单位主要负责人的安全生产职责。",
+                    "建立健全本单位安全生产责任制。",
+                    "", "初培");
             sheet.setColumnWidth(5, 80 * 256);
             for (int i = 0; i < TEMPLATE_HEADERS.length; i++) {
                 if (i != 5) {
@@ -114,9 +124,21 @@ public class ImportService {
         }
     }
 
-    public PageDto<Map<String, Object>> listTasks(int page, int pageSize) {
+    public PageDto<Map<String, Object>> listTasks(int page, int pageSize, String questionBankId, String status) {
         SecurityUtils.requireAdmin();
-        Page<ImportTask> result = importTaskRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page - 1, pageSize));
+        PageRequest pageable = PageRequest.of(page - 1, pageSize);
+        String bank = blankToNull(questionBankId);
+        String st = blankToNull(status);
+        Page<ImportTask> result;
+        if (bank != null && st != null) {
+            result = importTaskRepository.findByQuestionBankIdAndStatusOrderByCreatedAtDesc(bank, st, pageable);
+        } else if (bank != null) {
+            result = importTaskRepository.findByQuestionBankIdOrderByCreatedAtDesc(bank, pageable);
+        } else if (st != null) {
+            result = importTaskRepository.findByStatusOrderByCreatedAtDesc(st, pageable);
+        } else {
+            result = importTaskRepository.findAllByOrderByCreatedAtDesc(pageable);
+        }
         return new PageDto<>(result.getContent().stream().map(this::toDto).toList(),
                 result.getTotalElements(), page, pageSize);
     }
@@ -126,13 +148,13 @@ public class ImportService {
         SecurityUtils.requireAdmin();
         questionService.requireActiveBank(questionBankId);
         if (file.getSize() > MAX_FILE_SIZE) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "文件超过 10MB 限制", 422);
+            throw BusinessException.of(ErrorCode.IMP_FILE_TOO_LARGE, "文件超过 10MB 限制", 422);
         }
         byte[] bytes;
         try {
             bytes = file.getBytes();
         } catch (IOException e) {
-            throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "无法读取上传文件", 422);
+            throw BusinessException.of(ErrorCode.IMP_FILE_INVALID, "无法读取上传文件", 422);
         }
         QuestionImportParser.ParseResult parseResult = QuestionImportParser.parse(new ByteArrayInputStream(bytes));
 
@@ -144,9 +166,7 @@ public class ImportService {
         fileStore.write(storedKey, out -> out.write(bytes));
         task.setFileKey(storedKey);
         task.setConfirmToken(UUID.randomUUID().toString().replace("-", ""));
-        task.setImportableCount(parseResult.importableCount());
-        task.setErrorCount(parseResult.errorCount());
-        task.setPreviewJson(JsonHelper.toJson(parseResult.preview()));
+        applyPreview(task, parseResult);
         task.setCreatedBy(SecurityUtils.requirePrincipal().getEmployeeId());
         importTaskRepository.save(task);
         return toDto(task);
@@ -154,19 +174,25 @@ public class ImportService {
 
     public Map<String, Object> getTask(String id) {
         SecurityUtils.requireAdmin();
-        return toDto(getTaskEntity(id));
+        ImportTask task = getTaskEntity(id);
+        expireIfStale(task);
+        return toDto(task);
     }
 
     public Map<String, Object> getPreview(String id) {
         SecurityUtils.requireAdmin();
         ImportTask task = getTaskEntity(id);
+        expireIfStale(task);
         Map<String, Object> preview = new HashMap<>(JsonHelper.toMap(task.getPreviewJson()));
         preview.put("taskId", task.getId());
         preview.put("status", task.getStatus());
-        preview.put("confirmToken", task.getConfirmToken());
+        preview.put("confirmToken", "preview_ready".equals(task.getStatus()) ? task.getConfirmToken() : null);
         preview.put("importableCount", task.getImportableCount());
         preview.put("errorCount", task.getErrorCount());
-        preview.put("previewExpiresAt", Instant.now().plus(1, ChronoUnit.HOURS));
+        preview.put("totalCount", task.getImportableCount() + task.getErrorCount());
+        if (!preview.containsKey("previewExpiresAt")) {
+            preview.put("previewExpiresAt", Instant.now().plus(1, ChronoUnit.HOURS));
+        }
         preview.put("pendingHierarchy", buildPendingHierarchy(task));
         return preview;
     }
@@ -176,7 +202,7 @@ public class ImportService {
         confirm(id, confirmToken, Collections.emptyMap());
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public void confirm(String id, String confirmToken, Map<String, Object> hierarchyConfirm) {
         SecurityUtils.requireAdmin();
         ImportTask task = importTaskRepository.findByIdForUpdate(id)
@@ -186,22 +212,46 @@ public class ImportService {
             throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "任务已过期，不可确认", 409);
         }
         if (!"preview_ready".equals(task.getStatus())) {
-            throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "任务状态不允许确认", 409);
+            throw BusinessException.of(ErrorCode.IMP_TASK_NOT_CONFIRMED, "任务状态不允许确认", 409);
         }
         if (task.getConfirmToken() == null || !confirmToken.equals(task.getConfirmToken())) {
             throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "确认令牌无效或已过期", 409);
         }
-        Map<String, Object> preview = JsonHelper.toMap(task.getPreviewJson());
+        questionService.requireActiveBank(task.getQuestionBankId());
+
+        Map<String, Object> originalPreview = JsonHelper.toMap(task.getPreviewJson());
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
+        List<Map<String, Object>> originalValid = (List<Map<String, Object>>) originalPreview.getOrDefault("validRows", List.of());
+        List<String> originalIds = QuestionImportDeduper.rowIdentities(originalValid);
+
+        Map<String, Object> working = JsonHelper.toMap(JsonHelper.toJson(originalPreview));
+        List<QuestionVersion> bankVersions = questionService.findActiveVersionsByBank(task.getQuestionBankId());
+        QuestionImportDeduper.apply(working, bankVersions);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recheckedValid = (List<Map<String, Object>>) working.getOrDefault("validRows", List.of());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recheckedErrors = (List<Map<String, Object>>) working.getOrDefault("errorRows", List.of());
+        if (!originalIds.equals(QuestionImportDeduper.rowIdentities(recheckedValid))) {
+            working.put("totalCount", recheckedValid.size() + recheckedErrors.size());
+            task.setPreviewJson(JsonHelper.toJson(working));
+            task.setImportableCount(recheckedValid.size());
+            task.setErrorCount(recheckedErrors.size());
+            task.setStatus("needs_revalidation");
+            task.setConfirmToken(null);
+            importTaskRepository.save(task);
+            throw BusinessException.of(ErrorCode.IMP_PREVIEW_STALE, "题库或预览依据已变化，请重新校验", 409);
+        }
+
         Map<String, Object> pending = buildPendingHierarchy(task);
         if (hasPendingHierarchy(pending) && !isHierarchyConfirmed(hierarchyConfirm)) {
             throw BusinessException.of(ErrorCode.VALIDATION_ERROR, "存在未知分类或知识点，请确认后再导入", 422);
         }
+
         Map<String, String> categoryIds = new HashMap<>();
         Map<String, String> knowledgePointIds = new HashMap<>();
         String defaultCategoryId = null;
-        for (Map<String, Object> row : validRows) {
+        List<CreateQuestionRequest> requests = new ArrayList<>(originalValid.size());
+        for (Map<String, Object> row : originalValid) {
             String categoryName = blankToNull(row.get("categoryName"));
             String categoryId;
             if (categoryName == null) {
@@ -234,11 +284,9 @@ public class ImportService {
                     row.get("difficulty") != null ? String.valueOf(row.get("difficulty")) : "medium",
                     toScore(row.get("defaultScore"))
             );
-            questionService.createQuestion(
-                    task.getQuestionBankId(),
-                    new CreateQuestionRequest(categoryId, knowledgePointId, version)
-            );
+            requests.add(new CreateQuestionRequest(categoryId, knowledgePointId, version));
         }
+        questionService.createQuestions(task.getQuestionBankId(), requests);
         task.setStatus("completed");
         task.setConfirmToken(null);
         importTaskRepository.save(task);
@@ -247,7 +295,7 @@ public class ImportService {
                 "ImportTask",
                 id,
                 Map.of("status", "preview_ready"),
-                Map.of("status", "completed", "importedCount", validRows.size()),
+                Map.of("status", "completed", "importedCount", originalValid.size()),
                 null
         );
     }
@@ -256,7 +304,12 @@ public class ImportService {
     public void cancel(String id) {
         SecurityUtils.requireAdmin();
         ImportTask task = getTaskEntity(id);
+        expireIfStale(task);
+        if (!CANCELLABLE.contains(task.getStatus())) {
+            throw BusinessException.of(ErrorCode.IMP_TASK_NOT_CONFIRMED, "当前状态不可取消", 409);
+        }
         task.setStatus("cancelled");
+        task.setConfirmToken(null);
         importTaskRepository.save(task);
     }
 
@@ -264,6 +317,23 @@ public class ImportService {
     public void revalidate(String id) {
         SecurityUtils.requireAdmin();
         ImportTask task = getTaskEntity(id);
+        expireIfStale(task);
+        if (!REVALIDATABLE.contains(task.getStatus())) {
+            throw BusinessException.of(ErrorCode.IMP_TASK_NOT_CONFIRMED, "当前状态不可重新校验", 409);
+        }
+        if (task.getFileKey() == null || task.getFileKey().isBlank()) {
+            throw BusinessException.of(ErrorCode.IMP_FILE_INVALID, "导入文件已清理，无法重新校验", 422);
+        }
+        Resource resource = fileStore.read(task.getFileKey())
+                .orElseThrow(() -> BusinessException.of(ErrorCode.IMP_FILE_INVALID, "导入文件不存在，无法重新校验", 422));
+        QuestionImportParser.ParseResult parseResult;
+        try (InputStream inputStream = resource.getInputStream()) {
+            parseResult = QuestionImportParser.parse(inputStream);
+        } catch (IOException e) {
+            throw BusinessException.of(ErrorCode.IMP_FILE_INVALID, "无法读取导入文件", 422);
+        }
+        questionService.requireActiveBank(task.getQuestionBankId());
+        applyPreview(task, parseResult);
         task.setStatus("preview_ready");
         task.setConfirmToken(UUID.randomUUID().toString().replace("-", ""));
         importTaskRepository.save(task);
@@ -280,19 +350,39 @@ public class ImportService {
             Row header = sheet.createRow(0);
             header.createCell(0).setCellValue("sheetName");
             header.createCell(1).setCellValue("rowNum");
-            header.createCell(2).setCellValue("message");
+            header.createCell(2).setCellValue("errorType");
+            header.createCell(3).setCellValue("field");
+            header.createCell(4).setCellValue("stemSummary");
+            header.createCell(5).setCellValue("message");
             int rowIdx = 1;
             for (Map<String, Object> error : errorRows) {
                 Row row = sheet.createRow(rowIdx++);
-                row.createCell(0).setCellValue(error.get("sheetName") == null ? "" : String.valueOf(error.get("sheetName")));
-                row.createCell(1).setCellValue(((Number) error.get("rowNum")).intValue());
-                row.createCell(2).setCellValue(String.valueOf(error.get("message")));
+                row.createCell(0).setCellValue(ExcelCellHelper.sanitize(stringOrEmpty(error.get("sheetName"))));
+                row.createCell(1).setCellValue(error.get("rowNum") instanceof Number n ? n.intValue() : 0);
+                row.createCell(2).setCellValue(ExcelCellHelper.sanitize(stringOrEmpty(error.get("errorType"))));
+                row.createCell(3).setCellValue(ExcelCellHelper.sanitize(stringOrEmpty(error.get("field"))));
+                row.createCell(4).setCellValue(ExcelCellHelper.sanitize(stringOrEmpty(error.get("stemSummary"))));
+                row.createCell(5).setCellValue(ExcelCellHelper.sanitize(stringOrEmpty(error.get("message"))));
             }
             workbook.write(out);
             return out.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("Failed to generate error report", e);
         }
+    }
+
+    private void applyPreview(ImportTask task, QuestionImportParser.ParseResult parseResult) {
+        Map<String, Object> preview = new LinkedHashMap<>(parseResult.preview());
+        QuestionImportDeduper.apply(preview, questionService.findActiveVersionsByBank(task.getQuestionBankId()));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> validRows = (List<Map<String, Object>>) preview.getOrDefault("validRows", List.of());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> errorRows = (List<Map<String, Object>>) preview.getOrDefault("errorRows", List.of());
+        preview.put("totalCount", validRows.size() + errorRows.size());
+        preview.put("previewExpiresAt", Instant.now().plus(1, ChronoUnit.HOURS));
+        task.setImportableCount(validRows.size());
+        task.setErrorCount(errorRows.size());
+        task.setPreviewJson(JsonHelper.toJson(preview));
     }
 
     private void writeTemplateExample(
@@ -323,7 +413,7 @@ public class ImportService {
 
     private void expireIfStale(ImportTask task) {
         if (task.getCreatedAt() != null
-                && "preview_ready".equals(task.getStatus())
+                && CANCELLABLE.contains(task.getStatus())
                 && task.getCreatedAt().isBefore(Instant.now().minus(CONFIRM_TTL_DAYS, ChronoUnit.DAYS))) {
             task.setStatus("expired");
             task.setConfirmToken(null);
@@ -343,7 +433,9 @@ public class ImportService {
         dto.put("status", task.getStatus());
         dto.put("importableCount", task.getImportableCount());
         dto.put("errorCount", task.getErrorCount());
+        dto.put("totalCount", task.getImportableCount() + task.getErrorCount());
         dto.put("createdAt", task.getCreatedAt());
+        dto.put("confirmAllowed", "preview_ready".equals(task.getStatus()) && task.getConfirmToken() != null);
         return dto;
     }
 
@@ -412,6 +504,10 @@ public class ImportService {
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() || "null".equals(text) ? null : text;
+    }
+
+    private static String stringOrEmpty(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private static BigDecimal toScore(Object value) {

@@ -70,7 +70,7 @@
         </view>
         <view class="field">
           <text class="field-label">新密码</text>
-          <input class="field-input" password placeholder="至少 8 位" value="{{newPassword}}" bindinput="onNewPasswordInput" />
+          <input class="field-input" password placeholder="{{passwordHint}}" value="{{newPassword}}" bindinput="onNewPasswordInput" />
         </view>
         <view class="field">
           <text class="field-label">确认新密码</text>

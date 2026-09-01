@@ -71,7 +71,7 @@
         <input
           class="field-input"
           password
-          placeholder="至少 8 位"
+          placeholder="{{passwordHint}}"
           value="{{newPassword}}"
           bindinput="onNewPasswordInput"
         />

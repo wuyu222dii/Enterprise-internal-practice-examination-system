@@ -22,7 +22,7 @@ scripts/ops/restore.sh scripts/ops/backups/pg_latest.sql
 - [ ] 备份：`scripts/ops/backup.sh` 成功，对象含 PostgreSQL dump，排除 `credentials/`
 - [ ] 恢复演练记录：对空库跑过 `restore.sh`（可在演练库，不必动生产）
 - [ ] 存储：生产 `EXAM_STORAGE_BACKEND=minio`；本地开发保持 `local`
-- [ ] Prometheus 已抓取 `/api/v1/actuator/prometheus`，health 告警已接值班
+- [ ] Prometheus 抓取 `/api/v1/actuator/prometheus`（**需认证**：管理员 Bearer 或内网反代），health 告警已接值班
 - [ ] PERF 全量空表仍空则不得把本机抽样当作发布门禁通过
 
 切换窗口中：
@@ -34,3 +34,7 @@ scripts/ops/restore.sh scripts/ops/backups/pg_latest.sql
 回滚：用窗口前 dump 跑 `restore.sh`，应用配置回到上一版本。
 
 密钥：MinIO access/secret 只放环境变量或密钥管理，不进 git（见仓库根目录 `.env.example`）。
+
+Prometheus：`/api/v1/actuator/prometheus` 需认证（管理员 Bearer 或内网反代）。生产 CORS 用 `EXAM_CORS_ORIGIN_PATTERNS`。长周期留存见应用配置 `exam.retention.exam-record-days` / `practice-record-days` / `audit-record-days`。
+
+PERF-01~03 必须在独立压测机跑 `scripts/load-test/run-full-perf.sh`。禁止把本机抽样抄进验收追踪空表。

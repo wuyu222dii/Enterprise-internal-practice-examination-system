@@ -17,6 +17,13 @@ import java.util.Optional;
 public interface ImportTaskRepository extends JpaRepository<ImportTask, String> {
     Page<ImportTask> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
+    Page<ImportTask> findByQuestionBankIdOrderByCreatedAtDesc(String questionBankId, Pageable pageable);
+
+    Page<ImportTask> findByStatusOrderByCreatedAtDesc(String status, Pageable pageable);
+
+    Page<ImportTask> findByQuestionBankIdAndStatusOrderByCreatedAtDesc(
+            String questionBankId, String status, Pageable pageable);
+
     List<ImportTask> findByStatusInAndCreatedAtBefore(Collection<String> statuses, Instant createdAt);
 
     List<ImportTask> findByFileKeyIsNotNullAndCreatedAtBefore(Instant createdAt);

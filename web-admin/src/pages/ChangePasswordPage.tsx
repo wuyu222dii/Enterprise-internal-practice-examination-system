@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getStoredSession, getToken, setAuth } from '../api/client'
+import { PASSWORD_POLICY_HINT, validatePasswordPolicy } from '../passwordPolicy'
 
 interface SessionDto {
   employeeId: string
@@ -16,16 +17,18 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const session = getStoredSession<SessionDto>()
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (newPassword.length < 8) {
-      setError('新密码长度至少 8 位')
-      return
-    }
     if (newPassword !== confirmPassword) {
       setError('两次输入的新密码不一致')
+      return
+    }
+    const policyError = validatePasswordPolicy(newPassword, session?.employeeNo)
+    if (policyError) {
+      setError(policyError)
       return
     }
     setLoading(true)
@@ -44,8 +47,6 @@ export default function ChangePasswordPage() {
     }
   }
 
-  const session = getStoredSession<SessionDto>()
-
   return (
     <div className="login-page">
       <div className="login-card">
@@ -53,6 +54,7 @@ export default function ChangePasswordPage() {
         <p className="login-subtitle">
           {session?.displayName ? `${session.displayName}，请设置新密码后继续` : '首登须修改密码'}
         </p>
+        <p className="login-hint">{PASSWORD_POLICY_HINT}</p>
         <form onSubmit={handleSubmit}>
           <label>
             当前密码
@@ -72,6 +74,7 @@ export default function ChangePasswordPage() {
               onChange={(e) => setNewPassword(e.target.value)}
               required
               minLength={8}
+              maxLength={64}
               autoComplete="new-password"
             />
           </label>
@@ -83,6 +86,7 @@ export default function ChangePasswordPage() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
               minLength={8}
+              maxLength={64}
               autoComplete="new-password"
             />
           </label>

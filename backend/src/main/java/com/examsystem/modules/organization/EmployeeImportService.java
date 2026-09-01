@@ -4,6 +4,7 @@ import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.ExcelCellHelper;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.PasswordPolicy;
 import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.organization.dto.EmployeeImportResponse;
@@ -25,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -39,8 +39,6 @@ import java.util.stream.Collectors;
 @Service
 public class EmployeeImportService {
 
-    private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$";
-    private static final SecureRandom RANDOM = new SecureRandom();
     private static final String[] HEADERS = {"employeeNo", "displayName", "departmentPath", "phone"};
     private static final Set<String> EXPECTED_HEADERS = Set.of(HEADERS);
 
@@ -236,11 +234,7 @@ public class EmployeeImportService {
     }
 
     private String generateTemporaryPassword() {
-        StringBuilder password = new StringBuilder(12);
-        for (int i = 0; i < 12; i++) {
-            password.append(TEMP_PASSWORD_CHARS.charAt(RANDOM.nextInt(TEMP_PASSWORD_CHARS.length())));
-        }
-        return password.toString();
+        return PasswordPolicy.generateTemporary();
     }
 
     private record CredentialRow(String employeeNo, String displayName, String temporaryPassword) {

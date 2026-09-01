@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, setAuth } from '../api/client'
 import { examCompatibility } from '../browserSupport'
+import { PASSWORD_POLICY_HINT, validatePasswordPolicy } from '../passwordPolicy'
 
 interface SessionDto {
   employeeId: string
@@ -141,12 +142,13 @@ export default function LoginPage() {
       setError('请输入员工号')
       return
     }
-    if (newPassword.length < 8) {
-      setError('新密码长度至少 8 位')
-      return
-    }
     if (newPassword !== confirmPassword) {
       setError('两次输入的新密码不一致')
+      return
+    }
+    const policyError = validatePasswordPolicy(newPassword, employeeNo.trim(), phone.trim())
+    if (policyError) {
+      setError(policyError)
       return
     }
     setLoading(true)
@@ -232,6 +234,7 @@ export default function LoginPage() {
 
           {resetStep === 'password' && (
             <form onSubmit={handlePasswordReset}>
+              <p className="login-hint">{PASSWORD_POLICY_HINT}</p>
               <label>
                 员工号
                 <input
@@ -249,9 +252,10 @@ export default function LoginPage() {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="至少 8 位"
+                  placeholder={PASSWORD_POLICY_HINT}
                   required
                   minLength={8}
+                  maxLength={64}
                   autoComplete="new-password"
                 />
               </label>
@@ -264,6 +268,7 @@ export default function LoginPage() {
                   placeholder="再次输入新密码"
                   required
                   minLength={8}
+                  maxLength={64}
                   autoComplete="new-password"
                 />
               </label>

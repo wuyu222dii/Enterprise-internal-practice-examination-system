@@ -131,7 +131,51 @@ class QuestionImportParserTest {
             header(sheet, "wrong");
         });
         assertThatThrownBy(() -> QuestionImportParser.parse(new ByteArrayInputStream(bytes)))
+                .isInstanceOf(com.examsystem.common.BusinessException.class)
                 .hasMessageContaining("表头不正确");
+    }
+
+    @Test
+    void moreThanThousandRowsAreRejected() throws Exception {
+        byte[] bytes = workbook(wb -> {
+            Sheet sheet = wb.createSheet("questions");
+            header(sheet, "type", "stem", "options", "standardAnswer", "difficulty");
+            for (int i = 1; i <= 1001; i++) {
+                Row data = sheet.createRow(i);
+                data.createCell(0).setCellValue("singleChoice");
+                data.createCell(1).setCellValue("题干 " + i);
+                data.createCell(2).setCellValue("[{\"key\":\"A\",\"text\":\"1\"},{\"key\":\"B\",\"text\":\"2\"}]");
+                data.createCell(3).setCellValue("[\"B\"]");
+                data.createCell(4).setCellValue("easy");
+            }
+        });
+        assertThatThrownBy(() -> QuestionImportParser.parse(new ByteArrayInputStream(bytes)))
+                .isInstanceOf(com.examsystem.common.BusinessException.class)
+                .hasMessageContaining("超过 1000 行");
+    }
+
+    @Test
+    void multipleSheetsAreMerged() throws Exception {
+        byte[] bytes = workbook(wb -> {
+            Sheet first = wb.createSheet("sheet-a");
+            header(first, "type", "stem", "options", "standardAnswer", "difficulty");
+            Row a = first.createRow(1);
+            a.createCell(0).setCellValue("singleChoice");
+            a.createCell(1).setCellValue("多表一");
+            a.createCell(2).setCellValue("[{\"key\":\"A\",\"text\":\"1\"},{\"key\":\"B\",\"text\":\"2\"}]");
+            a.createCell(3).setCellValue("[\"B\"]");
+            a.createCell(4).setCellValue("easy");
+            Sheet second = wb.createSheet("sheet-b");
+            header(second, "type", "stem", "options", "standardAnswer", "difficulty");
+            Row b = second.createRow(1);
+            b.createCell(0).setCellValue("singleChoice");
+            b.createCell(1).setCellValue("多表二");
+            b.createCell(2).setCellValue("[{\"key\":\"A\",\"text\":\"1\"},{\"key\":\"B\",\"text\":\"2\"}]");
+            b.createCell(3).setCellValue("[\"A\"]");
+            b.createCell(4).setCellValue("easy");
+        });
+        QuestionImportParser.ParseResult result = QuestionImportParser.parse(new ByteArrayInputStream(bytes));
+        assertThat(result.importableCount()).isEqualTo(2);
     }
 
     @Test

@@ -85,6 +85,11 @@ exam:
     import-file-days: 180
     export-hours: 24
     credential-hours: 24
+    exam-record-days: 1825
+    practice-record-days: 730
+    audit-record-days: 1825
+  cors:
+    allowed-origin-patterns: ${EXAM_CORS_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
   observation:
     window-seconds: 20
   scheduler:

@@ -799,10 +799,8 @@ public class ExamService {
         boolean submitted = "completed".equals(attempt.getAttemptStatus()) || "voided".equals(attempt.getAttemptStatus());
         boolean hideOfficial = !"available".equals(resultState);
         boolean resultLocked = exam.isResultLocked();
-        boolean summaryVisible = !hideOfficial && submitted;
-        boolean perItemReviewAllowed = summaryVisible && boolValue(resultPolicy.get("perItemReviewAllowed"), true);
-        boolean passingScoreVisible = summaryVisible && boolValue(resultPolicy.get("passingScoreVisible"), false);
-        boolean passConclusionVisible = summaryVisible && boolValue(resultPolicy.get("passConclusionVisible"), false);
+        Map<String, Object> visibility = ExamResultVisibility.flags(
+                resultPolicy, !hideOfficial && submitted, lifecycle);
 
         Map<String, Object> dto = new HashMap<>();
         dto.put("attemptId", attemptId);
@@ -815,12 +813,7 @@ public class ExamService {
         int maxAttempts = intValue(versionConfig.get("maxAttempts"), 1);
         long used = attemptRepository.countByExamIdAndEmployeeId(exam.getId(), attempt.getEmployeeId());
         dto.put("remainingAttempts", Math.max(0, maxAttempts - (int) used));
-        dto.put("visibility", Map.of(
-                "summaryVisible", summaryVisible,
-                "passingScoreVisible", passingScoreVisible,
-                "passConclusionVisible", passConclusionVisible,
-                "perItemReviewAllowed", perItemReviewAllowed
-        ));
+        dto.put("visibility", visibility);
         if ("locked".equals(resultState)) {
             dto.put("neutralMessage", "结果锁定，异常处理中，请等待企业通知");
         } else if ("closing".equals(resultState)) {
@@ -830,19 +823,7 @@ public class ExamService {
                     ? exam.getEmployeeVisibleReason()
                     : "考试已取消");
         }
-        if (result != null && summaryVisible) {
-            dto.put("totalScore", result.getTotalScore());
-            dto.put("maxScore", result.getMaxScore());
-            if (passConclusionVisible) {
-                dto.put("passed", result.getTotalScore().compareTo(passingScore) >= 0);
-            }
-            if (passingScoreVisible) {
-                dto.put("passingScore", passingScore);
-            }
-            if (perItemReviewAllowed) {
-                dto.put("items", JsonHelper.parse(result.getDetailJson()));
-            }
-        }
+        putOfficialResult(dto, result, visibility, passingScore);
         return dto;
     }
 
@@ -854,6 +835,59 @@ public class ExamService {
             return b;
         }
         return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private void putOfficialResult(
+            Map<String, Object> dto,
+            ExamResult result,
+            Map<String, Object> visibility,
+            BigDecimal passingScore
+    ) {
+        if (result == null || !ExamResultVisibility.flag(visibility, "summaryVisible")) {
+            return;
+        }
+        if (ExamResultVisibility.flag(visibility, "showScore")) {
+            dto.put("totalScore", result.getTotalScore());
+            dto.put("maxScore", result.getMaxScore());
+        }
+        if (ExamResultVisibility.flag(visibility, "passConclusionVisible")) {
+            dto.put("passed", result.getTotalScore().compareTo(passingScore) >= 0);
+        }
+        if (ExamResultVisibility.flag(visibility, "passingScoreVisible")) {
+            dto.put("passingScore", passingScore);
+        }
+        Object parsed = JsonHelper.parse(result.getDetailJson());
+        int correct = 0;
+        int wrong = 0;
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (parsed instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    if (Boolean.TRUE.equals(map.get("isCorrect"))) {
+                        correct++;
+                    } else {
+                        wrong++;
+                    }
+                    if (ExamResultVisibility.flag(visibility, "perItemReviewAllowed")) {
+                        Map<String, Object> copy = new LinkedHashMap<>();
+                        map.forEach((key, value) -> copy.put(String.valueOf(key), value));
+                        if (!ExamResultVisibility.flag(visibility, "showExplanation")) {
+                            copy.remove("explanation");
+                        }
+                        items.add(copy);
+                    }
+                }
+            }
+        }
+        if (ExamResultVisibility.flag(visibility, "showCorrectCount")) {
+            dto.put("correctCount", correct);
+        }
+        if (ExamResultVisibility.flag(visibility, "showWrongCount")) {
+            dto.put("wrongCount", wrong);
+        }
+        if (ExamResultVisibility.flag(visibility, "perItemReviewAllowed")) {
+            dto.put("items", items);
+        }
     }
 
     public ExamAttempt getAttempt(String attemptId) {
@@ -1406,26 +1440,15 @@ public class ExamService {
                     ? section(versionConfig, "resultPolicy")
                     : Map.of();
             boolean hideOfficial = !"available".equals(resultState);
-            boolean summaryVisible = !hideOfficial && submitted;
-            boolean perItemReviewAllowed = summaryVisible && boolValue(resultPolicy.get("perItemReviewAllowed"), true);
-            boolean passingScoreVisible = summaryVisible && boolValue(resultPolicy.get("passingScoreVisible"), false);
-            boolean passConclusionVisible = summaryVisible && boolValue(resultPolicy.get("passConclusionVisible"), false);
-            dto.put("visibility", Map.of(
-                    "summaryVisible", summaryVisible,
-                    "passingScoreVisible", passingScoreVisible,
-                    "passConclusionVisible", passConclusionVisible,
-                    "perItemReviewAllowed", perItemReviewAllowed
-            ));
-            if (result != null && summaryVisible) {
-                dto.put("totalScore", result.getTotalScore());
-                dto.put("maxScore", result.getMaxScore());
-                if (passConclusionVisible) {
-                    dto.put("passed", result.getPassed());
-                }
-                if (passingScoreVisible) {
-                    dto.put("passingScore", decimalValue(versionConfig.get("passingScore"), BigDecimal.ZERO));
-                }
-            }
+            Map<String, Object> visibility = ExamResultVisibility.flags(
+                    resultPolicy, !hideOfficial && submitted, lifecycle);
+            dto.put("visibility", visibility);
+            putOfficialResult(
+                    dto,
+                    result,
+                    visibility,
+                    decimalValue(versionConfig.get("passingScore"), BigDecimal.ZERO)
+            );
         }
         return dto;
     }

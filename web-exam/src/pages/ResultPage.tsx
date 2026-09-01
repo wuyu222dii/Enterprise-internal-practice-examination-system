@@ -8,6 +8,11 @@ interface ResultVisibility {
   passingScoreVisible: boolean
   passConclusionVisible: boolean
   perItemReviewAllowed: boolean
+  showScore?: boolean
+  showCorrectCount?: boolean
+  showWrongCount?: boolean
+  showExplanation?: boolean
+  revealTiming?: string
 }
 
 interface ResultItem {
@@ -33,6 +38,8 @@ interface AttemptResult {
   maxScore?: number
   passed?: boolean
   passingScore?: number
+  correctCount?: number
+  wrongCount?: number
   items?: ResultItem[]
 }
 
@@ -118,14 +125,16 @@ export default function ResultPage() {
       {result && resultState === 'available' && summaryVisible && (
         <section className="card result-card">
           <dl className="detail-list">
+            {visibility?.showScore !== false && result.totalScore != null && (
             <div className="detail-row">
               <dt>总分</dt>
               <dd>
-                {result.totalScore != null && result.maxScore != null
+                {result.maxScore != null
                   ? `${result.totalScore} / ${result.maxScore}`
-                  : '—'}
+                  : result.totalScore}
               </dd>
             </div>
+            )}
             {visibility?.passingScoreVisible && result.passingScore != null && (
               <div className="detail-row">
                 <dt>及格分</dt>
@@ -138,6 +147,18 @@ export default function ResultPage() {
                 <dd className={result.passed ? 'result-pass' : 'result-fail'}>
                   {result.passed ? '通过' : '未通过'}
                 </dd>
+              </div>
+            )}
+            {visibility?.showCorrectCount && result.correctCount != null && (
+              <div className="detail-row">
+                <dt>正确题数</dt>
+                <dd>{result.correctCount}</dd>
+              </div>
+            )}
+            {visibility?.showWrongCount && result.wrongCount != null && (
+              <div className="detail-row">
+                <dt>错误题数</dt>
+                <dd>{result.wrongCount}</dd>
               </div>
             )}
           </dl>
@@ -160,7 +181,7 @@ export default function ResultPage() {
                     <p className="review-answer">
                       标准答案：{item.standardAnswer.join(', ')}
                     </p>
-                    {item.explanation && (
+                    {visibility?.showExplanation !== false && item.explanation && (
                       <p className="review-explanation">解析：{item.explanation}</p>
                     )}
                   </li>

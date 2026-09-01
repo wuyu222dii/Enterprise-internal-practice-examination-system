@@ -1,4 +1,5 @@
 const app = getApp()
+const { validatePasswordPolicy, PASSWORD_POLICY_HINT } = require('../../utils/passwordPolicy')
 
 Page({
   data: {
@@ -9,6 +10,7 @@ Page({
     code: '',
     resetToken: '',
     newPassword: '',
+    passwordHint: PASSWORD_POLICY_HINT,
     forgotStep: 'idle',
     error: '',
     success: '',
@@ -152,8 +154,13 @@ Page({
       this.setData({ error: '请输入工号' })
       return
     }
-    if (!newPassword || newPassword.length < 8) {
-      this.setData({ error: '新密码长度至少 8 位' })
+    if (!newPassword) {
+      this.setData({ error: '请输入新密码' })
+      return
+    }
+    const policyError = validatePasswordPolicy(newPassword, employeeNo, this.data.phone)
+    if (policyError) {
+      this.setData({ error: policyError })
       return
     }
     this.setData({ loading: true, error: '', success: '' })

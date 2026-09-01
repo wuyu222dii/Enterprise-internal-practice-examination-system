@@ -3,6 +3,7 @@ package com.examsystem.modules.auth;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.PasswordPolicy;
 import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.auth.dto.BindMiniProgramRequest;
 import com.examsystem.modules.auth.dto.ChangePasswordRequest;
@@ -32,8 +33,6 @@ import java.util.Map;
 
 @Service
 public class AuthService {
-
-    private static final int MIN_PASSWORD_LENGTH = 8;
 
     private final EmployeeRepository employeeRepository;
     private final SessionService sessionService;
@@ -113,7 +112,7 @@ public class AuthService {
         if (!passwordEncoder.matches(request.currentPassword(), employee.getPasswordHash())) {
             throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "当前密码错误", 401);
         }
-        validatePasswordPolicy(request.newPassword());
+        validatePasswordPolicy(request.newPassword(), employee.getEmployeeNo(), employee.getPhone());
 
         employee.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         employee.setMustChangePassword(false);
@@ -158,7 +157,7 @@ public class AuthService {
             throw BusinessException.of(ErrorCode.AUTH_INVALID_CREDENTIALS, "手机号与工号不匹配", 401);
         }
 
-        validatePasswordPolicy(request.newPassword());
+        validatePasswordPolicy(request.newPassword(), employee.getEmployeeNo(), employee.getPhone());
         employee.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         employee.setMustChangePassword(false);
         employee.setFailedLoginCount(0);
@@ -259,14 +258,8 @@ public class AuthService {
         }
     }
 
-    private void validatePasswordPolicy(String password) {
-        if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
-            throw BusinessException.of(
-                    ErrorCode.AUTH_PASSWORD_POLICY_VIOLATION,
-                    "密码长度至少为 " + MIN_PASSWORD_LENGTH + " 位",
-                    422
-            );
-        }
+    private void validatePasswordPolicy(String password, String employeeNo, String phone) {
+        PasswordPolicy.validate(password, employeeNo, phone);
     }
 
     private SessionDto toSessionDto(Employee employee) {

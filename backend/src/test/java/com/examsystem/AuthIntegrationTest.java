@@ -71,6 +71,19 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void weakPasswordIsRejectedByPolicy() throws Exception {
+        String token = TestAuthHelper.loginAdmin(mockMvc, objectMapper);
+        mockMvc.perform(post("/auth/change-password")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currentPassword":"Admin@12345","newPassword":"password"}
+                                """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("AUTH_PASSWORD_POLICY_VIOLATION"));
+    }
+
+    @Test
     void changePasswordClearsMustChangeFlag() throws Exception {
         String token = TestAuthHelper.loginAdmin(mockMvc, objectMapper);
 

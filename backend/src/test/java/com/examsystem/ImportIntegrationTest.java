@@ -138,7 +138,8 @@ class ImportIntegrationTest {
                         .file(wrongHeaderWorkbook())
                         .param("questionBankId", "qb_demo")
                         .header("Authorization", "Bearer " + adminToken))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("IMP_FILE_INVALID"));
     }
 
     @Test
@@ -295,7 +296,7 @@ class ImportIntegrationTest {
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"confirmToken":"%s","hierarchyConfirm":{"confirmPendingHierarchy":true}}
+                                {"confirmToken":"%s","confirmPendingHierarchy":true}
                                 """.formatted(confirmToken)))
                 .andExpect(status().isOk());
 
@@ -307,6 +308,143 @@ class ImportIntegrationTest {
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(3));
+    }
+
+    @Test
+    void duplicateAndConflictRowsStayInErrorReport() throws Exception {
+        String stem = "重复冲突题-" + UUID.randomUUID();
+        List<String[]> rows = List.of(
+                validRow(stem),
+                validRow(stem),
+                new String[] {
+                        "singleChoice",
+                        stem,
+                        "[{\"key\":\"A\",\"text\":\"1\"},{\"key\":\"B\",\"text\":\"2\"}]",
+                        "[\"A\"]",
+                        "easy"
+                }
+        );
+        mockMvc.perform(multipart("/import/tasks")
+                        .file(TestExamHelper.questionWorkbook(rows))
+                        .param("questionBankId", "qb_demo")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.importableCount").value(1))
+                .andExpect(jsonPath("$.data.errorCount").value(2));
+    }
+
+    @Test
+    void revalidateRereadsFileAndRotatesConfirmToken() throws Exception {
+        MockMultipartFile file = TestExamHelper.questionWorkbook(List.<String[]>of(validRow("重新校验题-" + UUID.randomUUID())));
+        MvcResult created = mockMvc.perform(multipart("/import/tasks")
+                        .file(file)
+                        .param("questionBankId", "qb_demo")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String taskId = objectMapper.readTree(created.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+        String oldToken = objectMapper.readTree(mockMvc.perform(get("/import/tasks/" + taskId + "/preview")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andReturn().getResponse().getContentAsString())
+                .path("data").path("confirmToken").asText();
+
+        mockMvc.perform(post("/import/tasks/" + taskId + "/revalidate")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        String newToken = objectMapper.readTree(mockMvc.perform(get("/import/tasks/" + taskId + "/preview")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("preview_ready"))
+                .andExpect(jsonPath("$.data.importableCount").value(1))
+                .andReturn().getResponse().getContentAsString())
+                .path("data").path("confirmToken").asText();
+        assertThat(newToken).isNotBlank().isNotEqualTo(oldToken);
+
+        mockMvc.perform(post("/import/tasks/" + taskId + "/confirm")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"confirmToken\":\"" + oldToken + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IMP_PREVIEW_STALE"));
+
+        mockMvc.perform(post("/import/tasks/" + taskId + "/confirm")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"confirmToken\":\"" + newToken + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void confirmMarksNeedsRevalidationWhenBankGainsSameQuestion() throws Exception {
+        String stem = "确认前变题-" + UUID.randomUUID();
+        MvcResult createdBank = mockMvc.perform(post("/question-banks")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"revalidate-bank-" + UUID.randomUUID() + "\",\"practiceEnabled\":false,\"mockEnabled\":false}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String bankId = objectMapper.readTree(createdBank.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+        String categoryId = objectMapper.readTree(mockMvc.perform(post("/question-banks/" + bankId + "/categories")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"通用\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString())
+                .path("data").path("id").asText();
+
+        MvcResult created = mockMvc.perform(multipart("/import/tasks")
+                        .file(TestExamHelper.questionWorkbook(List.<String[]>of(validRow(stem))))
+                        .param("questionBankId", bankId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.importableCount").value(1))
+                .andReturn();
+        String taskId = objectMapper.readTree(created.getResponse().getContentAsString())
+                .path("data").path("id").asText();
+        String confirmToken = objectMapper.readTree(mockMvc.perform(get("/import/tasks/" + taskId + "/preview")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andReturn().getResponse().getContentAsString())
+                .path("data").path("confirmToken").asText();
+
+        mockMvc.perform(post("/question-banks/" + bankId + "/questions")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": "%s",
+                                  "version": {
+                                    "type": "singleChoice",
+                                    "stem": "%s",
+                                    "options": [{"key":"A","text":"1"},{"key":"B","text":"2"}],
+                                    "standardAnswer": ["B"],
+                                    "difficulty": "easy"
+                                  }
+                                }
+                                """.formatted(categoryId, stem)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/import/tasks/" + taskId + "/confirm")
+                        .header("Authorization", "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"confirmToken\":\"" + confirmToken + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IMP_PREVIEW_STALE"));
+
+        mockMvc.perform(get("/import/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("needs_revalidation"));
+    }
+
+    @Test
+    void listTasksCanFilterByStatus() throws Exception {
+        mockMvc.perform(get("/import/tasks?page=1&pageSize=10&status=completed")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isArray());
     }
 
     private static String[] validRow(String stem) {

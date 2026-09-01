@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, setAuth } from '../api/client'
+import { PASSWORD_POLICY_HINT, validatePasswordPolicy } from '../passwordPolicy'
 
 interface SessionDto {
   employeeId: string
@@ -131,12 +132,13 @@ export default function LoginPage() {
       setError('请输入员工号')
       return
     }
-    if (newPassword.length < 8) {
-      setError('新密码长度至少 8 位')
-      return
-    }
     if (newPassword !== confirmPassword) {
       setError('两次输入的新密码不一致')
+      return
+    }
+    const policyError = validatePasswordPolicy(newPassword, employeeNo.trim(), phone.trim())
+    if (policyError) {
+      setError(policyError)
       return
     }
     setLoading(true)
@@ -196,17 +198,18 @@ export default function LoginPage() {
           )}
           {resetStep === 'password' && (
             <form onSubmit={(e) => void handlePasswordReset(e)}>
+              <p className="login-hint">{PASSWORD_POLICY_HINT}</p>
               <label>
                 员工号
                 <input value={employeeNo} onChange={(e) => setEmployeeNo(e.target.value)} required autoComplete="username" />
               </label>
               <label>
                 新密码
-                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} />
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} maxLength={64} placeholder={PASSWORD_POLICY_HINT} />
               </label>
               <label>
                 确认新密码
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={8} />
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={8} maxLength={64} />
               </label>
               {error && <p className="form-error">{error}</p>}
               <button type="submit" className="btn-primary" disabled={loading}>

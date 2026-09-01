@@ -21,6 +21,8 @@ interface QuestionVersionDto {
   difficulty: string
   options?: OptionRow[]
   standardAnswer?: string[]
+  explanation?: string
+  defaultScore?: number
   createdAt?: string
 }
 
@@ -98,6 +100,8 @@ export default function QuestionsPage() {
   const [answerKeys, setAnswerKeys] = useState<string[]>(['A'])
   const [referenceAnswer, setReferenceAnswer] = useState('')
   const [difficulty, setDifficulty] = useState('medium')
+  const [explanation, setExplanation] = useState('')
+  const [defaultScore, setDefaultScore] = useState('1')
   const [submitting, setSubmitting] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newKpName, setNewKpName] = useState('')
@@ -198,12 +202,15 @@ export default function QuestionsPage() {
   }
 
   function versionPayload() {
+    const score = Number(defaultScore)
     return {
       type,
       stem: stem.trim(),
       options: isEssay ? [] : optionRows,
       standardAnswer: isEssay ? [referenceAnswer.trim()] : answerKeys,
       difficulty,
+      explanation: explanation.trim() || undefined,
+      defaultScore: Number.isFinite(score) && score > 0 ? score : 1,
     }
   }
 
@@ -285,6 +292,8 @@ export default function QuestionsPage() {
       }
       setStem('')
       setReferenceAnswer('')
+      setExplanation('')
+      setDefaultScore('1')
       setOptionRows(defaultOptions(type))
       setAnswerKeys(type === 'essay' ? [] : ['A'])
       await load()
@@ -304,6 +313,8 @@ export default function QuestionsPage() {
     setType(current.type)
     setStem(current.stem)
     setDifficulty(current.difficulty)
+    setExplanation(current.explanation ?? '')
+    setDefaultScore(current.defaultScore != null ? String(current.defaultScore) : '1')
     setOptionRows(
       current.type === 'essay' ? [] : (current.options?.length ? current.options : defaultOptions(current.type)),
     )
@@ -590,6 +601,27 @@ export default function QuestionsPage() {
               </div>
             )}
 
+            <label className="field-block">
+              解析（选填）
+              <textarea
+                rows={3}
+                value={explanation}
+                onChange={(e) => setExplanation(e.target.value)}
+                placeholder="交卷后按考试公开策略展示"
+              />
+            </label>
+            <label>
+              默认分值
+              <input
+                type="number"
+                min={0.01}
+                step={0.01}
+                value={defaultScore}
+                onChange={(e) => setDefaultScore(e.target.value)}
+                required
+              />
+            </label>
+
             <div className="form-actions">
               <button type="submit" className="btn-primary" disabled={submitting}>
                 {submitting ? '保存中…' : reviseQuestionId ? '发布新版本' : '创建'}
@@ -602,6 +634,8 @@ export default function QuestionsPage() {
                     setReviseQuestionId('')
                     setStem('')
                     setReferenceAnswer('')
+                    setExplanation('')
+                    setDefaultScore('1')
                   }}
                 >
                   取消修订

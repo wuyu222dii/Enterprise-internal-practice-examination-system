@@ -105,6 +105,12 @@ export default function ExamWizardPage() {
   const [employeeNosText, setEmployeeNosText] = useState('')
   const [showScore, setShowScore] = useState(true)
   const [showAnswers, setShowAnswers] = useState(false)
+  const [revealTiming, setRevealTiming] = useState<'afterSubmit' | 'afterExamEnd'>('afterSubmit')
+  const [showPassConclusion, setShowPassConclusion] = useState(false)
+  const [showCorrectCount, setShowCorrectCount] = useState(false)
+  const [showWrongCount, setShowWrongCount] = useState(false)
+  const [passingScoreVisible, setPassingScoreVisible] = useState(false)
+  const [showExplanation, setShowExplanation] = useState(false)
 
   const flatDepartments = useMemo(() => flattenDepartments(departments), [departments])
   const selectedFixedBank = banks.find((bank) => bank.id === fixedBankId)
@@ -254,7 +260,18 @@ export default function ExamWizardPage() {
       } else if (step === 3) {
         await apiFetch(`/admin/exams/${currentExamId}/wizard/visibility`, {
           method: 'PUT',
-          body: JSON.stringify({ showScore, showAnswers }),
+          body: JSON.stringify({
+            revealTiming,
+            showScore,
+            showPassConclusion,
+            showCorrectCount,
+            showWrongCount,
+            passingScoreVisible,
+            showAnswers,
+            showExplanation,
+            perItemReviewAllowed: showAnswers,
+            passConclusionVisible: showPassConclusion,
+          }),
         })
         setStep(4)
       } else if (step === 4) {
@@ -592,21 +609,86 @@ export default function ExamWizardPage() {
 
           {step === 3 && (
             <>
+              <fieldset className="field-block">
+                <legend>公开时机</legend>
+                <label className="checkbox-label">
+                  <input
+                    type="radio"
+                    name="revealTiming"
+                    checked={revealTiming === 'afterSubmit'}
+                    onChange={() => setRevealTiming('afterSubmit')}
+                  />
+                  交卷后公开
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="radio"
+                    name="revealTiming"
+                    checked={revealTiming === 'afterExamEnd'}
+                    onChange={() => setRevealTiming('afterExamEnd')}
+                  />
+                  整场结束后公开
+                </label>
+              </fieldset>
               <label className="checkbox-label">
                 <input
                   type="checkbox"
                   checked={showScore}
                   onChange={(e) => setShowScore(e.target.checked)}
                 />
-                交卷后显示得分
+                显示总分
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showPassConclusion}
+                  onChange={(e) => setShowPassConclusion(e.target.checked)}
+                />
+                显示是否通过
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={passingScoreVisible}
+                  onChange={(e) => setPassingScoreVisible(e.target.checked)}
+                />
+                显示及格分
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showCorrectCount}
+                  onChange={(e) => setShowCorrectCount(e.target.checked)}
+                />
+                显示正确题数
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showWrongCount}
+                  onChange={(e) => setShowWrongCount(e.target.checked)}
+                />
+                显示错误题数
               </label>
               <label className="checkbox-label">
                 <input
                   type="checkbox"
                   checked={showAnswers}
-                  onChange={(e) => setShowAnswers(e.target.checked)}
+                  onChange={(e) => {
+                    setShowAnswers(e.target.checked)
+                    if (!e.target.checked) setShowExplanation(false)
+                  }}
                 />
-                交卷后显示答案解析
+                显示答案
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showExplanation}
+                  disabled={!showAnswers}
+                  onChange={(e) => setShowExplanation(e.target.checked)}
+                />
+                显示解析
               </label>
             </>
           )}
@@ -628,6 +710,17 @@ export default function ExamWizardPage() {
                 </dd>
                 <dt>应考人员</dt>
                 <dd>{assigneeLabel()}</dd>
+                <dt>结果公开</dt>
+                <dd>
+                  {revealTiming === 'afterExamEnd' ? '整场结束后' : '交卷后'}
+                  {showScore ? ' · 总分' : ''}
+                  {showPassConclusion ? ' · 是否通过' : ''}
+                  {passingScoreVisible ? ' · 及格分' : ''}
+                  {showCorrectCount ? ' · 正确数' : ''}
+                  {showWrongCount ? ' · 错误数' : ''}
+                  {showAnswers ? ' · 答案' : ''}
+                  {showExplanation ? ' · 解析' : ''}
+                </dd>
               </dl>
               {paperMode === 'rules' && (
               <table className="data-table">

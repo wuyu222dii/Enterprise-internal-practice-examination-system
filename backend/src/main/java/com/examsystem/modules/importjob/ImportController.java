@@ -49,9 +49,11 @@ public class ImportController {
     @GetMapping("/tasks")
     public ApiResponse<PageDto<Map<String, Object>>> listTasks(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String questionBankId,
+            @RequestParam(required = false) String status
     ) {
-        return ApiResponse.ok(importService.listTasks(page, pageSize), metaFactory.build());
+        return ApiResponse.ok(importService.listTasks(page, pageSize, questionBankId, status), metaFactory.build());
     }
 
     @PostMapping("/tasks")
@@ -80,10 +82,13 @@ public class ImportController {
             @RequestBody Map<String, Object> body
     ) {
         Runnable action = () -> {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> hierarchyConfirm = body.get("hierarchyConfirm") instanceof Map<?, ?> map
-                    ? (Map<String, Object>) map
-                    : Collections.emptyMap();
+            Map<String, Object> hierarchyConfirm = new java.util.HashMap<>();
+            if (body.get("hierarchyConfirm") instanceof Map<?, ?> map) {
+                map.forEach((key, value) -> hierarchyConfirm.put(String.valueOf(key), value));
+            }
+            if (body.containsKey("confirmPendingHierarchy")) {
+                hierarchyConfirm.put("confirmPendingHierarchy", body.get("confirmPendingHierarchy"));
+            }
             importService.confirm(id, String.valueOf(body.get("confirmToken")), hierarchyConfirm);
         };
         if (idempotencyKey != null) {

@@ -3,6 +3,7 @@ package com.examsystem.modules.organization;
 import com.examsystem.common.BusinessException;
 import com.examsystem.common.ErrorCode;
 import com.examsystem.common.IdGenerator;
+import com.examsystem.common.PasswordPolicy;
 import com.examsystem.common.storage.FileStore;
 import com.examsystem.modules.audit.AuditService;
 import com.examsystem.modules.auth.SessionService;
@@ -32,7 +33,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,9 +42,6 @@ import java.util.stream.Collectors;
 
 @Service
 public class OrganizationService {
-
-    private static final String TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$";
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final DepartmentRepository departmentRepository;
     private final EmployeeRepository employeeRepository;
@@ -467,11 +464,7 @@ public class OrganizationService {
     }
 
     private String generateTemporaryPassword() {
-        StringBuilder password = new StringBuilder(12);
-        for (int i = 0; i < 12; i++) {
-            password.append(TEMP_PASSWORD_CHARS.charAt(RANDOM.nextInt(TEMP_PASSWORD_CHARS.length())));
-        }
-        return password.toString();
+        return PasswordPolicy.generateTemporary();
     }
 
     private String blankToNull(String value) {
